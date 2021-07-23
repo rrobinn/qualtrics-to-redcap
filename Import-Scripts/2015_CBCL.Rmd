@@ -1,0 +1,214 @@
+---
+title: "Import CBCL data to redcap"
+author: "Robin Sifre"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+---
+
+# About  
+Script cleans CBCL data from 2015 & gets it ready for import.  
+Script also generates data dictionary items for CBCL.  
+
+# CBCL
+0=Not True | 1 = Sometimes or Somewhat true | 2 = Very true or often true 
+
+```{r setup, include=FALSE, message=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "../")
+
+library(tidyverse)
+library(lubridate)
+library(DT)
+library(knitr)
+```
+
+```{r}
+# Loads data 
+source('01_setup_import.R')
+```
+
+
+# Check Values
+
+## CBCL preschool
+### GNC 
+```{r}
+test = s15_gnc %>% 
+  select(matches('CBCLpre')) %>%
+  select(!matches('TEXT'))
+
+min_vals = apply(test, 2, min, na.rm=T)
+max_vals = apply(test, 2, max, na.rm=T)
+
+datatable(data.frame(min_vals, max_vals), filter='top')
+```
+
+### Control 
+```{r}
+test = s15_control %>% 
+  select(matches('CBCLpre')) %>%
+  select(!matches('TEXT'))
+
+min_vals = apply(test, 2, min, na.rm=T)
+max_vals = apply(test, 2, max, na.rm=T)
+df=data.frame(min_vals, max_vals)
+datatable(data.frame(min_vals, max_vals), filter='top')
+
+```
+
+## CBCL youth
+
+### GNC
+```{r}
+test = s15_gnc %>% 
+  select(matches('CBCLyouth')) %>%
+  select(!matches('TEXT'))
+
+min_vals = apply(test, 2, min, na.rm=T)
+max_vals = apply(test, 2, max, na.rm=T)
+
+datatable(data.frame(min_vals, max_vals), filter='top')
+```
+
+### Control
+```{r}
+test = s15_control %>% 
+  select(matches('CBCLyouth')) %>%
+  select(!matches('TEXT'))
+
+min_vals = apply(test, 2, min, na.rm=T)
+max_vals = apply(test, 2, max, na.rm=T)
+
+datatable(data.frame(min_vals, max_vals), filter='top')
+```
+
+
+
+# Re-code CBCL values
+
+CBCL preschool items have to be re-scaled for:  
+- CBCL preschool (control & gnc)  
+- CBCL youth (control)
+```{r}
+sub1 <- function(x) {
+  if (is.na(x)) {return(NA)}
+  else {return(x-1)}
+}
+```
+
+## Control (preschool & youth need to be recoded)
+```{r warning=FALSE, message=FALSE}
+# Convert current scale for preschool & youth items items (1,2,3) -->> (0,1,2)
+#0=Not true, 1=Sometimes, 2=Very True (currently coded as 1, 2, 3)
+cbcl_control = s15_control %>%
+    # Select all CBCL items 
+    select(subjectid, child_id, matches('CBCL')) %>%
+    select(!matches('TEXT')) %>%
+    # Apply the sub1 function to all CBCL items 
+    mutate_at(vars(matches('CBCL')), sub1)
+```
+
+## GNC (Only Preschool items)
+```{r warning=FALSE}
+cbcl_gnc = s15_gnc %>%
+  # Select all CBCL items 
+  select(subjectid, child_id, matches('CBCL')) %>%
+  select(!matches('TEXT')) %>%
+  # Apply the sub1 function to preschool CBCL items 
+  mutate_at(vars(matches('CBCLpresch')), sub1)
+```
+
+
+# Check new values
+## Control
+```{r warning=FALSE}
+test = cbcl_control %>% 
+  select(matches('CBCL')) 
+
+min_vals = apply(test, 2, min, na.rm=T)
+max_vals = apply(test, 2, max, na.rm=T)
+
+datatable(data.frame(min_vals, max_vals), filter='top')
+```
+
+
+## GNC
+```{r warning=FALSE}
+test = cbcl_gnc %>% 
+  select(matches('CBCL')) 
+
+min_vals = apply(test, 2, min, na.rm=T)
+max_vals = apply(test, 2, max, na.rm=T)
+
+datatable(data.frame(min_vals, max_vals), filter='top')
+```
+
+# Combine GNC & Control data
+```{r}
+cbcl = rbind(cbcl_control, cbcl_gnc)
+```
+
+# Separate Based on Parent Responses
+
+```{r}
+cbcl_wide = cbcl %>%
+    mutate(parent = ifelse(substr(subjectid, 1,1)==8, 'p1','p2')) %>%
+    pivot_wider(id_cols = child_id, 
+                names_from = parent, 
+                names_glue = "{parent}_{.value}",
+                values_from = c(CBCLpresch_1:CBCLyouth_121))
+
+
+# Make column names lower case
+colnames(cbcl_wide) = tolower(colnames(cbcl_wide))
+
+# Finalize for import
+cbcl_wide = cbcl_wide %>%
+  rename(subjectid = child_id) %>%
+  # Add identifier 
+  mutate(subjectid_visitnum = paste(subjectid, 's15', sep = '_')) %>%
+  relocate(subjectid_visitnum)
+```
+
+# Remove rows with no data
+```{r}
+cbcl_wide = cbcl_wide %>%
+  filter(if_any(contains('cbcl'), ~!is.na(.)))
+```
+
+
+# Convert to text and replace NA with blanks
+```{r}
+cbcl_wide = cbcl_wide %>%
+  # Apply the to_text function to preschool CBCL items 
+  mutate_at(vars(matches('cbcl')), to_text) %>%
+  select(-subjectid)
+```
+
+
+# Make data dictionary 
+Variable / Field Name	Form Name	Section Header	Field Type	Field Label	Choices, Calculations, OR Slider Labels
+```{r}
+var_names = cbcl_wide %>% select(matches('cbcl')) %>% colnames()
+
+my_dict=data.frame(`Variable / Field Name` = var_names,
+           `Form Name` = 'cbcl',
+           `Section Header` = 'one_off_2015',
+           `Field Type` = 'text',
+           `Field Label` = var_names,
+            `Choices, Calculations, OR Slider Labels` = '0, Not True (as far as you know) | 1, Sometimes or Somewhat True | 2, Very True or Often True ',
+           `Field Note` = '',
+           `Text Validation Type OR Show Slider Number` = 'number',
+           `Text Validation Min` = 0,
+            `Text Validation Max` =2)
+           
+```
+
+# Save data & dict
+```{r}
+write.csv(cbcl_wide, 'data_to_import/cbcl.csv', row.names = FALSE)
+write.csv(my_dict, 'new_data_dict_items/cbcl.csv', row.names=FALSE)
+```
+

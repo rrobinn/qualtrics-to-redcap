@@ -1,0 +1,117 @@
+---
+title: "Untitled"
+author: "Robin Sifre"
+date: "5/28/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Gender
+Existing fields: `p1_kid_gender`, `p2_kid_gender`:  1, Boy | 2, Girl | 3, Non-binary | 4, Other  
+What is your child's gender" Located on page 1 of packet (not on demographics page)"
+
+<b>Qualtrics Surveys</b>:  
+- Gender
+2015 (genID), 2017 & 2018 (can infer from pronouns), 2019, 2020, 
+(p1_kid_gender, p2_kid_gender)
+1, Boy | 2, Girl | 3, Non-binary | 4, Other
+
+## 2015  
+```{r}
+#1=boy, 2=girl, 3=other
+s15 = rbind(s15_control %>% select(parent_id = subjectid, child_id, Gender, Gender_3_TEXT), 
+            s15_gnc %>% select(parent_id = subjectid, child_id, Gender, Gender_3_TEXT))
+
+
+```
+
+## 2017
+For control & sib group, no one entered "other" for natal sex. Infer gender from natal_sex variable.
+```{r}
+unique(s17_control$Q3)
+unique(s17_sib$Q3)
+```
+
+```{r}
+# Combine control & sib data 
+s17_c = rbind(s17_control %>% select(subjectid, child_id, natal_sex=Q3),
+              s17_sib %>% select(subjectid, child_id, natal_sex=Q3))
+
+# Separate parent data 
+s17_c = s17_c %>%
+  mutate(parent = ifelse(substr(subjectid, 1,1)==8, 'p1','p2')) %>%
+  rename(kid_gender=natal_sex) %>%
+  pivot_wider(id_cols = child_id, names_from=parent, values_from = c(kid_gender, subjectid),
+              names_glue = "{parent}_{.value}")
+
+```
+
+GNC - infer gender from pronons
+```{r}
+s17_g = s17_gnc %>%
+  select(subjectid, child_id, 
+         # 1= male, 2=female, 3=other
+         natal_sex = Q3,
+         school = Q7,
+         home= Q8, ext_fam = Q9, bff=Q10, dist=Q11,
+         public=Q12)
+
+s17_g %>%
+  unite('prons', school:public) %>%
+  # If they said "other" in any context, code as "other"=4
+  mutate(kid_gender = ifelse(grepl('3', prons), 4, NA),
+         # If they did not indicate "other" and use more than one pronoun in a context, 
+         # code as "non-binary"=3
+         kid_gender = ifelse(grepl(',',prons) & kid_gender!=4, 3, kid_gender)) %>%
+  filter(kid_gender==4) 
+
+
+
+unique(s17_gnc$Q10_3_TEXT)
+
+```
+
+## 2018
+For control & sib group, no one entered "other" for natal sex. Infer gender from natal_sex variable.
+```{r}
+unique(s18_control$Q3)
+unique(s18_sib$Q3)
+
+```
+
+```{r}
+# Combine control & sib data 
+s18_c = rbind(s18_control %>% select(subjectid, child_id, natal_sex=Q3),
+              s18_sib %>% select(subjectid, child_id, natal_sex=Q3))
+
+# Separate parent data 
+s18_c = s18_c %>%
+  mutate(parent = ifelse(substr(subjectid, 1,1)==8, 'p1','p2')) %>%
+  rename(kid_gender=natal_sex) %>%
+  pivot_wider(id_cols = child_id, names_from=parent, values_from = c(kid_gender, subjectid),
+              names_glue = "{parent}_{.value}")
+
+```
+
+```{r}
+s18_g = s18_gnc %>%
+  select(subjectid, child_id, 
+         # 1= male, 2=female, 3=other
+         natal_sex = Q3,
+         school = Q6,
+         home= Q7, ext_fam = Q8, bff=Q9, dist=Q10,
+         public=Q11)
+```
+
+
+## 2020
+```{r}
+# 1=boy, 2=girl, 3=ther, 4=skip
+s2o = rbind(s20_1 %>% select(gender =p1_kid_gender, gender_text = p1_kid_gender_3_TEXT ),
+            s20_2 %>% select(gender = p1_kid_gender.1, gender_text = p1_kid_gender_3_TEXT.1))
+```
+

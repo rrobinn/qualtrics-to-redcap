@@ -1,0 +1,153 @@
+---
+title: "Intersex Items"
+author: "Robin Sifre"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+---
+
+# Items that this script harmonizes
+- Intersex- yes/no. Some years they had a write-in option.  
+This was asked (in some way) 2015, 2017, and 2019. 
+
+p1_intersex, p1_intersex_ds, p2_intersex, and p2_intersex_ds already exist in redcap. This script also creates
+intersex item (teen survey)
+
+
+```{r setup, include=FALSE, message=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "../")
+
+library(tidyverse)
+library(lubridate)
+library(DT)
+library(knitr)
+```
+
+```{r}
+# Loads data 
+source('01_setup_import.R')
+```
+
+
+# Intersex (Parent)
+0, No | 1, Yes
+
+## Old redcap
+```{r}
+redcap_intersex = old_redcap %>%
+  select(subjectid_visitnum, p1_intersex, p1_intersex_ds, p2_intersex, p2_intersex_ds) %>%
+  # Only import visits that have data for this variable 
+  filter(!is.na(p1_intersex) | !is.na(p2_intersex))
+```
+
+
+## 2015 
+```{r}
+# Intersex Has your child ever been diagnosed with an "intersex" condition or disorder of sex development? By intersex we are asking if your child was born with an anatomical or genetic condition (e.g., ambiguous genitalia) that is not categorized as distinctly male or female. Note: identifying as transgender is not an intersex condition
+# 1=No, 2=Yes
+s15 = rbind(s15_control %>% select(subjectid = child_id, parentid = subjectid, intersex = Intersex, intersex_ds = Intersex_2_TEXT), 
+            s15_gnc %>% select(subjectid = child_id, parentid = subjectid, intersex = Intersex, intersex_ds= Intersex_2_TEXT))
+
+
+s15 = s15 %>%
+  mutate(subjectid_visitnum = paste(subjectid, 's15', sep='_'),
+         intersex = recode(intersex, `1`='0', `2`='1'),
+         intersex_ds = ifelse(is.na(intersex_ds), '', intersex_ds))  
+  
+```
+
+## 2017
+```{r}
+# 1=No, 2=Yes
+s17 = rbind(s17_control %>% select(subjectid = child_id, parentid = subjectid, intersex = Q6, intersex_ds = Q6_2_TEXT),
+            s17_sib %>% select(subjectid = child_id, parentid = subjectid, intersex = Q6, intersex_ds = Q6_2_TEXT),
+            s17_gnc %>% select(subjectid = child_id, parentid = subjectid, intersex = Q19, intersex_ds = Q19_2_TEXT))
+
+s17 = s17 %>%
+  mutate(subjectid_visitnum = paste(subjectid, 's17', sep='_'),
+  intersex = recode(intersex, `1`='0', `2`='1'),
+  intersex_ds = ifelse(is.na(intersex_ds), '', intersex_ds)) 
+```
+
+## 2018 (not asked)
+
+## 2019 parent
+```{r}
+# natal_sex What was your assigned sex at birth (some people call   this your "birth sex")?
+# 1=male, 2=female, 3-intersex, 4=other
+s19_parent = rbind(s19_parent_control %>% select(subjectid=child_id, parentid = subjectid, natal_sex=Q4),
+                  s19_parent_gnc  %>% select(subjectid=child_id, parentid = subjectid, natal_sex))
+
+# Make intersex variable based on if they picked 3 for the natal sex
+s19_parent = s19_parent %>%
+  mutate(intersex = ifelse(natal_sex==3, '1', '0'),
+         intersex_ds = '') %>%
+  select(-c(natal_sex)) %>%
+  mutate(subjectid_visitnum = paste(subjectid, 's19', sep='_'))
+
+```
+
+## 2020 (not asked)
+
+## Merge qualtrics data & separate by parent
+```{r}
+p_intersex = rbind(s15, s17, s19_parent)
+
+p_intersex = p_intersex %>%
+  # Separate answers for p1 & p2
+  mutate(parent = ifelse(substr(parentid, 1,1)==8, 'p1','p2')) %>%
+  pivot_wider(id_cols = subjectid_visitnum, 
+                names_from = parent, 
+                names_glue = "{parent}_{.value}",
+                values_from = c(intersex, intersex_ds)) %>%
+    # Replace NA with blanks 
+  mutate_at(vars(matches('intersex')), to_text)
+```
+
+## Combine with old redcap data
+```{r}
+
+redcap_intersex = redcap_intersex %>%mutate_at(vars(matches('intersex')), to_text)
+
+p_intersex = rbind(redcap_intersex, p_intersex)
+```
+
+
+## Intersex (Kid)
+```{r}
+s19_kid = rbind(s19_kid_gnc %>% select(subjectid, natal_sex),
+                s19_kid_control %>% select(subjectid, natal_sex=Q5))
+
+k_intersex = s19_kid %>%
+  mutate(intersex = ifelse(natal_sex==3, '1', '0')) %>%
+  mutate(subjectid_visitnum = paste(subjectid, 's19', sep='_')) %>%
+  select(-c(subjectid, natal_sex)) %>%
+  mutate_at(vars(matches('intersex')), to_text)
+
+```
+
+
+## Merge Intersex data 
+```{r}
+temp = full_join(p_intersex, k_intersex, by = 'subjectid_visitnum')
+
+temp = temp %>% mutate_at(vars(matches('intersex')), to_text) %>% distinct()
+```
+
+## Check values
+```{r}
+unique(temp$p1_intersex)
+unique(temp$p2_intersex)
+unique(temp$intersex)
+```
+
+
+## Save data 
+
+```{r}
+write.csv(temp, 'data_to_import/intersex.csv', row.names = FALSE)
+
+```
+

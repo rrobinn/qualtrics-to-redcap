@@ -1,0 +1,144 @@
+---
+title: "Natal Sex"
+author: "Robin Sifre"
+date: "5/27/2021"
+output: html_document
+---
+
+# About
+This script preps the `natal_sex` data to import to redcap from the qualtrics surveys (data from old redcap in-person visits already migrated).  
+- In redcap, this is 1, Boy | 2, Girl | 3, Other  
+
+- Anatomy (male/female/other)  
+2015, 2017, 2018, 2019, 2020
+
+
+```{r setup, include=FALSE, message=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "../")
+
+library(tidyverse)
+library(lubridate)
+library(DT)
+library(knitr)
+```
+
+```{r}
+# Loads data 
+source('01_setup_import.R')
+```
+
+
+## 2015
+```{r}
+# 1=male, 2=female, 3=other
+s15 = rbind(s15_gnc %>% select(subjectid=child_id, natal_sex = Anatomy, 
+                               natal_sex_text = Anatomy_3_TEXT),
+            s15_control %>% select(subjectid=child_id, natal_sex = Anatomy, natal_sex_text = Anatomy_3_TEXT))
+
+s15 = s15 %>% 
+  mutate(subjectid_visitnum = paste(subjectid, 's15', sep = '_'),
+         natal_sex_text = ifelse(is.na(natal_sex_text), '', natal_sex_text)) 
+```
+
+## 2017
+```{r}
+# 1=male, 2=female, 3=other
+s17 = rbind(s17_sib %>% select(subjectid=child_id, natal_sex=Q3),
+            s17_gnc %>% select(subjectid=child_id,natal_sex=Q3),
+            s17_control %>% select(subjectid=child_id, natal_sex=Q3))
+
+s17 = s17 %>% 
+  mutate(subjectid_visitnum = paste(subjectid, 's17', sep = '_'),
+         natal_sex_text = '')
+```
+
+## 2018
+```{r}
+## 1=male, 2=female, 3=other
+# Note - sibling did not have 'other' option
+s18 = rbind(s18_gnc %>% select(subjectid=child_id, natal_sex=Q3),
+            s18_control %>% select(subjectid=child_id, natal_sex=Q3),
+            s18_sib %>% select(subjectid=child_id, natal_sex=Q3))
+
+s18 = s18 %>% 
+  mutate(subjectid_visitnum = paste(subjectid, 's18', sep = '_'),
+         natal_sex_text = '')
+
+```
+
+## 2019
+```{r}
+## 1=male, 2=female, 3=intersex, 4=other, 5 = skip (but ppl only selected 1 and 2)
+s19 = rbind(s19_parent_control %>% 
+                     select(subjectid=child_id, natal_sex=Q4, natal_sex_text = Q4_4_TEXT),
+                   s19_parent_gnc  %>% 
+                     select(subjectid=child_id,natal_sex, natal_sex_text = natal_sex_4_TEXT))
+
+s19 = s19 %>% 
+  mutate(subjectid_visitnum = paste(subjectid, 's19', sep = '_'),
+         natal_sex_text = ifelse(is.na(natal_sex_text), '', natal_sex_text)) 
+```
+
+## 2020
+```{r}
+# 1=male, 2=female, 3=other, 4=skip (no one picked 4)
+s20 = rbind(s20_1 %>% select(subjectid=child_id, natal_sex, natal_sex_text = natal_sex_3_TEXT),
+            s20_2 %>% select(subjectid=child_id,natal_sex=natal_sex.1, natal_sex_text = natal_sex_3_TEXT.1))
+
+s20 = s20 %>% 
+  mutate(subjectid_visitnum = paste(subjectid, 's20', sep = '_'),
+         natal_sex_text = ifelse(is.na(natal_sex_text), '', natal_sex_text)) 
+
+```
+
+## Merge natal sex data
+```{r}
+natal_sex = rbind(s15, s17, s18, s19, s20)
+```
+
+## check values
+```{r}
+unique(natal_sex$natal_sex)
+natal_sex %>% filter(natal_sex==3)
+
+# recoded based on comments 
+natal_sex[natal_sex$subjectid==4032, 'natal_sex'] = 1
+
+
+natal_sex = natal_sex %>% 
+  mutate(natal_sex = ifelse(is.na(natal_sex), '', natal_sex)) %>%
+  relocate(subjectid_visitnum) 
+```
+
+## Cases where parents disagreed
+```{r}
+check = natal_sex %>%
+  distinct() %>%
+  group_by(subjectid_visitnum) %>%
+  mutate(n=n()) %>%
+  filter(n>1) %>%
+  pull(subjectid)
+
+natal_sex %>% filter(subjectid %in% check) %>% arrange(subjectid)
+
+# recode if there is only one year where it's off
+natal_sex[natal_sex$subjectid==573, 'natal_sex'] = 2
+natal_sex[natal_sex$subjectid==789, 'natal_sex'] = 1
+natal_sex[natal_sex$subjectid==874, 'natal_sex'] = 2
+natal_sex[natal_sex$subjectid==4068, 'natal_sex'] = 2
+
+natal_sex = distinct(natal_sex)
+natal_sex = natal_sex %>% select(subjectid_visitnum, natal_sex)
+```
+
+```{r}
+unique(natal_sex$natal_sex)
+```
+
+## Save data
+```{r}
+write.csv(natal_sex, 'data_to_import/natal_sex.csv', row.names = FALSE)
+```
+
+

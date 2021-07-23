@@ -1,0 +1,382 @@
+---
+title: "Import Race data to redcap"
+author: "Robin Sifre"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      root.dir = "../")
+
+library(tidyverse)
+library(lubridate)
+library(DT)
+library(knitr)
+```
+
+```{r}
+# Loads data 
+source('01_setup_import.R')
+```
+
+# Race
+
+** How p1_child_race is coded in redcap**
+```{r}
+code = c('1','2',
+'3','4','5','6','7','8','9','10','11','12','13','14','15','16','17','18',
+'19','20','21','22','23','24','25','26','27','28','29','30','31','32','33','34','35','36',
+'37','38','39','40','41','42','43','44','45','46')
+
+race=c('White/European',
+'Hispanic/Latino','Black/African',
+'Asian','Pacific Islander','Native American/Alaska Native',
+'Other','Black & White','White/European & Hispanic/Latino','White/European & Asian',
+'White/European & Hispanic/Latino & Black/African','White & Native American/Alaska Native',
+'White/European & East Indian','White/European & Pacific Islander','White/European & Other',
+'White/European & Hispanic/Latino & Native American/Alaska Native','White/European & Black/African & Asian',
+'White/European & Asian & Native American/Alaskan Native','White/European & Pacific Islander & Native American/Alaska Native',
+'White/European & Asian & Pacific Islander','White/European & Hispanic/Latino & Asian',
+'White/European & Black/African & Native American/Alaska Native','White/European & Black/African & Other',
+'Black/African & Hispanic/Latino','If parent writes "Middle Eastern" anywhere on the form or in the Other box',
+'White/European & Hispanic/Latino & Black/African & Native American/Alaska Native','White & Jewish',
+'White/European & Black/African & Asian & Other','Black/African & Asian','Hispanic/Latino & Native American/Alaska Native',
+'White/European & Hispanic/Latino & Black/African & Asian','White/European & Black/African & Pacific Islander',
+'Hispanic/Latino & Jewish','Hispanic/Latino & Pacific Islander & Native American/Alaska Native','White/European & Black/African & Pacific Islander & Native American/Alaska Native','Asian/Indian','Asian & Hispanic/Latino','Asian & Pacific Islander & Other','Hispanic/Latino & Other','Black/African & Jewish & Hispanic/Latino','Black/African & Pacific Islander','Black/African & Native American/Alaska Native',
+'Hispanic/Latino & Pacific Islander','Hispanic/Latino & Black/African & Native American/Alaska Native','White/European & Black/African & Asian & Pacific Islander','White/European & Native American/Alaska Native & Jewish')
+
+race_code = data.frame(race = race, code=code)
+
+race_code = race_code %>%
+  mutate(n=strsplit(race, '&'),
+         n = lapply(n, length))
+```
+
+
+```{r}
+return_race_code <- function(race, ethnicity, race_code_book) {
+
+  if (race==''){
+    return('Missing')
+  }
+
+  # number of elements to look for 
+  races = unlist(strsplit(race,','))
+  
+  # If they selected "other" need to manually check write-in
+  if ('7' %in% races) {
+    return('Other')
+  }
+  
+
+  
+  # If missing ethnicity, assume not hispanic/latino
+  if (is.na(ethnicity)) ethnicity = '2'
+  
+  if (ethnicity == '1')  {
+    n_race = length(races) + 1
+  } else {
+    n_race = length(races)
+  }
+  
+  # Go thru all races and select rows that apply
+  for (r in races){
+    if (r=='1') race_code_book = race_code_book %>% filter(grepl('White', race)) 
+    if (r=='3') race_code_book = race_code_book %>% filter(grepl('Black', race)) 
+    if (r=='4') race_code_book = race_code_book %>% filter(grepl('Asian', race) & !grepl('Indian', race)) 
+    if (r=='5') race_code_book = race_code_book %>% filter(grepl('Pacific', race)) 
+    if (r=='6') race_code_book = race_code_book %>% filter(grepl('Nativ', race)) 
+  }
+  
+  if (ethnicity == '1') race_code_book = race_code_book %>% filter(grepl('Hispanic', race)) 
+  race_code_book = race_code_book %>% filter(n==n_race)
+  
+  if (nrow(race_code_book)!=1){
+    return("Error")
+  } else {
+    return(race_code_book$code)
+  }
+}
+
+```
+
+
+## 2015
+
+### Recode race 
+What is your child's race? 
+p1_child_race
+
+Ethnicity:  1=Hispanic, 2 = Non-Hispanic
+Race:  1= White/Euro | 3 =Black/African | 4 = Asian | 5 = Pacific Islander | 6 = Native American/Native Alaskan | 7 = Other
+
+```{r}
+# Combine data 
+s15 = rbind(s15_control %>%
+              select(subjectid, child_id, Ethnicity, Race, Race_TEXT = Race_7_TEXT), 
+            s15_gnc %>%
+              select(subjectid, child_id, Ethnicity, Race,Race_TEXT = Race_7_TEXT))
+```
+
+
+```{r}
+s15$race_code = NA
+
+for (s in 1:nrow(s15)) {
+  temp = s15[s,]
+  
+  # Pull Ethnicity
+  ethnicity = as.character(temp$Ethnicity)
+  
+  # Pull race(s)
+  race = temp$Race
+  
+  # Get the race code
+  code = return_race_code(race, ethnicity, race_code)
+  
+  s15[s15$child_id==temp$child_id, 'race_code'] = code
+  
+}
+
+# Check for errors 
+s15 %>% filter(race_code=="Error")
+
+```
+
+
+Deal with "Other" write-in
+```{r}
+s15 %>% filter(race_code == 'Other')
+```
+
+```{r}
+s15[s15$child_id=='593', 'race_code'] = '27' # White & Jewish
+s15[s15$child_id=='573', 'race_code'] = '1'
+s15[s15$child_id=='956', 'race_code'] = '10' # 10, White/European & Asian 
+s15[s15$child_id=='579', 'race_code'] = '2' # Hispanic/Larina
+s15[s15$child_id=='571', 'race_code'] = '36' # 36, Asian/Indian 
+s15[s15$child_id=='432', 'race_code'] = '1'
+s15[s15$child_id=='471', 'race_code'] = '15' # White and other
+s15[s15$child_id=='458', 'race_code'] = '13'  #White/European & East Indian 
+s15[s15$child_id=='490', 'race_code'] = '30' #30, Hispanic/Latino & Native American/Alaska Native 
+s15[s15$child_id=='4003', 'race_code'] = '9' # White/Euro & Hispanic
+
+s15[s15$child_id=='832', 'race_code'] = '9' # White/Euro & Hispanic
+s15[s15$child_id=='486', 'race_code']= '21' # White/European & Hispanic/Latino & Asian 
+s15[s15$child_id=='386',  'race_code']= '21' # White/European & Hispanic/Latino & Asian 
+
+s15[s15$child_id=='308',  'race_code'] = '11' # Black and white and Hispanic 
+s15[s15$child_id=='408',  'race_code'] = '11'
+
+```
+
+```{r}
+s15 = s15 %>%
+  mutate(race_code = ifelse(race_code=='Missing', '', race_code))
+```
+
+
+## 2017
+### Re-code race
+Race:  1= White/Euro | 2=Hispanic/Latino | 3 =Black/African | 4 = Asian | 5 = Pacific Islander | 6 = Native American/Native Alaskan | 7 = Other
+```{r}
+s17 = rbind(s17_control %>%
+              select(subjectid, child_id, 
+                     self_race = Q115, self_race_text = Q115_7_TEXT, partner_race=Q124, partner_race_text = Q124_7_TEXT), 
+            s17_gnc %>%
+              select(subjectid, child_id, 
+                     self_race=Q215, self_race_text = Q215_7_TEXT, partner_race=Q224, partner_race_text = Q224_7_TEXT),
+            s17_sib %>%
+              select(subjectid, child_id,self_race=Q118,
+                     self_race_text = Q118_7_TEXT, partner_race=Q127, partner_race_text = Q127_7_TEXT))
+```
+
+```{r}
+return_race_code_17 <- function(race, race_code_book) {
+
+  if (race==''){
+    return('Missing')
+  }
+
+  # number of elements to look for 
+  races = unlist(strsplit(race,','))
+  
+  # If they selected "other" need to manually check write-in
+  if ('7' %in% races) {
+    return('Other')
+  }
+
+  n_race = length(races)
+  
+  # Go thru all races and select rows that apply
+  for (r in races){
+    if (r=='1') race_code_book = race_code_book %>% filter(grepl('White', race)) 
+    if (r=='2') race_code_book = race_code_book %>% filter(grepl('Hispanic', race))
+    if (r=='3') race_code_book = race_code_book %>% filter(grepl('Black', race)) 
+    if (r=='4') race_code_book = race_code_book %>% filter(grepl('Asian', race) & !grepl('Indian', race)) 
+    if (r=='5') race_code_book = race_code_book %>% filter(grepl('Pacific', race)) 
+    if (r=='6') race_code_book = race_code_book %>% filter(grepl('Nativ', race)) 
+  }
+  
+  race_code_book = race_code_book %>% filter(n==n_race)
+  
+  if (nrow(race_code_book)!=1){
+    return("Error")
+  } else {
+    return(race_code_book$code)
+  }
+}
+
+```
+
+```{r}
+s17$race_code_self = NA
+s17$race_code_partner = NA
+
+for (s in 1:nrow(s17)) {
+  temp = s17[s,]
+  
+  # Pull "What is your race"
+  race_self = temp$self_race
+  
+  # Pull "What is your child's other parent's race?
+  race_partner = temp$partner_race
+  
+  # Get the race code
+  code_self = return_race_code_17(race_self, race_code)
+  code_partner = return_race_code_17(race_partner, race_code)
+  
+  s17[s17$subjectid==temp$subjectid, 'race_code_self'] = code_self
+    s17[s17$subjectid==temp$subjectid, 'race_code_partner'] = code_partner
+
+}
+
+s17 = s17 %>%
+  relocate(race_code_self, .after=self_race_text) 
+
+# Check for errors 
+s17 %>% filter(race_code_partner=="Error" | race_code_self=='Error')
+```
+
+```{r}
+s17[s17$child_id==3112, 'race_code_other'] = '38'
+```
+
+
+Deal with "Other" write-in
+```{r}
+s17 %>% filter(race_code_self == 'Other' | race_code_partner=='Other') %>% pull(subjectid) 
+
+s17[s17$subjectid==8509, 'race_code_self'] = '10'
+s17[s17$subjectid==8929, 'race_code_self'] = '7'
+s17[s17$subjectid==9947,  'race_code_self'  ] = '7'
+s17[s17$subjectid==8964, 'race_code_self'] = '7'
+s17[s17$subjectid==9573, 'race_code_partner' ] = '25' # Middle eastern
+s17[s17$subjectid==9562, 'race_code_partner'] = '14'
+s17[s17$subjectid==9562, 'race_code_self'] = '14'
+s17[s17$subjectid==8593, 'race_code_partner'] = '7'
+s17[s17$subjectid==85033, 'race_code_self'] = '8'
+s17[s17$subjectid==8578, 'race_code_self'] = '10' # White and asian
+s17[s17$subjectid==85405, 'race_code_self'] = '8' # Black and white 
+
+s17[s17$subjectid==8593, 'race_code_partner'] = '7'
+s17[s17$subjectid==95405, 'race_code_partner'] = '7'
+s17[s17$subjectid==8553, 'race_code_self'] ='10' # White and asian
+s17[s17$subjectid==8553, 'race_code_partner'] = '12' # White and native
+
+s17[s17$subjectid==9553, 'race_code_partner'] = '12' # inferred from partner parent's answer
+s17[s17$subjectid==85034, 'race_code_self'] = '7'
+s17[s17$subjectid==8597,  'race_code_self'] = '7'
+s17[s17$subjectid==9446, 'race_code_self']= '27' # White and Jewish 
+s17[s17$subjectid==9492,'race_code_self'] = '10' # White and asian
+s17[s17$subjectid==84004,'race_code_self'] = '10' # White and asian
+s17[s17$subjectid==94098, 'race_code_self'] = '15' # White & other           
+s17[s17$subjectid==84437, 'race_code_self'] ='10' # White and asian
+s17[s17$subjectid==84441, 'race_code_self'] = '7' # Jewish but did not specify if White 
+s17[s17$subjectid==84441, 'race_code_partner'] = '7' # Jewish but did not specify if White 
+
+s17[s17$subjectid==94024, 'race_code_self'] = '9' # White/European & Hispanic/Latino
+s17[s17$subjectid==84051, 'race_code_partner'] = '7'
+s17[s17$subjectid==884,  'race_code_self'] = '27' # White and Jewish 
+s17[s17$subjectid==84106,  'race_code_partner'] = '2' #Hispanic/latino 
+s17[s17$subjectid==84400,  'race_code_self'] = '7' 
+s17[s17$subjectid==84423,   'race_code_self'] = '27' # White and Jewish 
+s17[s17$subjectid==9861,   'race_code_self'] = '1'
+
+s17[s17$subjectid==9346,  'race_code_self'] = '7' # Jewish but did not specify if White 
+s17[s17$subjectid==8716, 'race_code_self'] = '10' # White and asian
+s17[s17$subjectid==83437,  'race_code_self'] = '10' # White and asian
+s17[s17$subjectid==83441,  'race_code_self'] = '7' # Jewish but did not specify if White 
+s17[s17$subjectid==83441,  'race_code_partner'] = '7' # Jewish but did not specify if White 
+
+s17[s17$subjectid==83106, 'race_code_partner'] = '2'
+s17[s17$subjectid==83400, 'race_code_self'] = '7'
+s17[s17$subjectid==83423, 'race_code_self'] ='27' # White and Jewish 
+```
+
+# 2018
+## Did not ask
+
+# 2019 (parent)
+What is YOUR racial/ethnic background?  
+What is your child's racial/ethnic background?  
+Race:  1= White/Euro | 2=Hispanic/Latino | 3 =Black/African | 4 = Asian | 5 = Pacific Islander | 6 = Native American/Native Alaskan | 7 = Other
+```{r}
+s19<-rbind(s19_parent_control %>%
+  select(subjectid, child_id,
+         race = Q124, race_text = Q124_7_TEXT,
+         race_child = Q123, race_child_text = Q123_7_TEXT),
+s19_parent_gnc %>%
+   select(subjectid, child_id,
+         race = p1_parent_race, race_text = p1_parent_race_7_TEXT,
+         race_child = p1_child_race, race_child_text = p1_child_race_7_TEXT))
+```
+
+## Recode
+```{r}
+s19$race_code_self = NA
+s19$race_code_child = NA
+
+for (s in 1:nrow(s19)) {
+  temp = s19[s,]
+  
+  # Pull "What is your race"
+  race_self = temp$race
+  
+  # Pull "What is your race?
+  race_child = temp$race_child
+  
+  # Get the race code
+  code_self = return_race_code_17(race_self, race_code)
+  code_child = return_race_code_17(race_child, race_code)
+  
+  s19[s19$subjectid==temp$subjectid, 'race_code_self'] = code_self
+    s19[s19$subjectid==temp$subjectid, 'race_code_child'] = code_child
+
+}
+
+s19 = s19 %>%
+  relocate(race_code_self, .after=race_text) 
+
+# Check for errors 
+s19 %>% filter(race_code_self=="Error" | race_code_child=='Error')
+```
+
+```{r}
+
+```
+
+
+# 2019 (kid)
+```{r}
+s19_kid<-rbind(s19_kid_gnc %>%
+  select(subjectid, child_race, child_race_text = child_race_7_TEXT),
+s19_kid_control %>%
+  select(subjectid, child_race = Q4, child_race_text = Q4_7_TEXT))
+```
+
+# 2020
+## Did not ask

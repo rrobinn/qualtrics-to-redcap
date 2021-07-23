@@ -1,0 +1,109 @@
+---
+title: "Pronouns"
+author: "Robin Sifre"
+date: "5/27/2021"
+output: html_document
+---
+```{r setup, include=FALSE, message=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "../")
+
+library(tidyverse)
+library(lubridate)
+library(DT)
+library(knitr)
+```
+
+```{r}
+# Loads data 
+source('01_setup_import.R')
+```
+
+# About
+How the pronoun data are currently coded in redcap:
+-1, Male | 2, Female | 3, Other | 4, Male & Other | 5, Female & Other | 6, Male & Female | 7, Male, Female & Other  
+
+
+## Old redcap
+```{r}
+old <- old_redcap %>%
+  select(p1_pronouns = pronouns, # p1 received pronouns questions? 
+         p1_pro_school, p1_pro_school_other,
+         p1_pro_home, p1_pro_home_other,
+         p1_pro_extfam,  p1_pro_extfam_other,
+         p1_pro_bffs,   p1_pro_bffs_other,
+         p1_pro_dist_friends,  p1_pro_dist_friends_other,
+         p1_pro_public,     p1_pro_public_other,
+         p1_agepronouns = agegen, # p1 received age pronouns changed?
+         p1_age_school,
+         p1_age_home,
+         p1_age_extfam,
+         p1_age_bffs,
+         p1_age_dist_friends,
+         p1_age_public,
+         p1_age_pro_diff,
+         p1_age_name_diff,
+         p1_age_clothes_diff,
+         # parent 2 
+         p2_pronouns = p2prounouns,
+         p2_pro_school,
+         p2_pro_school_other,
+         p2_pro_home,
+         p2_pro_home_other,
+         p2_pro_extfam,
+         p2_pro_extfam_other,
+         p2_pro_bffs,
+         p2_pro_bffs_other,
+         p2_pro_dist_friends,
+         p2_pro_dist_friends_other,
+         p2_pro_public,
+         p2_pro_public_other,
+         p2_agepronouns = p2agegen, # p2 received age pronouns changed?
+         p2_age_school,
+         p2_age_home,
+         p2_age_extfam,
+         p2_age_bffs,
+         p2_age_dist_friends,
+         p2_age_public,
+         p2_age_pro_diff,
+         p2_age_name_diff,
+         p2_age_clothes_diff)
+```
+
+## 2015
+```{r}
+s15 <- s15_gnc %>%
+  select(child_id, subjectid, Transition,
+         # Age that child started using pronoun that does not correspond to natal sex 
+         age_pro_diff = PronounAg, 
+         age_school = PronContex_School,
+         age_home = PronContex_Home,
+         age_extfam = PronContex_ExtFam,
+         age_bffs = PronContex_BestFriends,
+         age_dist_friends = PronContex_DistFriends,
+         age_public = PronContex_Public,
+         age_name_diff = NameAge,
+         age_clothes_diff = ClothesAge,
+         # 1=boy, 2=girl, 3=other
+         pro_school = Schoo,
+         pro_home = Home,
+         pro_extfam = ExtFam,
+         pro_bffs = BestFriends,
+         pro_dist_friends = DistFriends,
+         pro_public = Public) %>%
+  # age_name_diff & age_clothes_diff need to be re-coded
+  mutate(age_name_diff = age_name_diff/2,
+         age_clothes_diff = age_clothes_diff/2) %>%
+   # Note - Qualtrics codes NA at 99. There are 2 cases with NAs with age_school, but they did answer the other items. So ok to assume that they saw and skipped this context bc it does not apply? 
+  mutate(age_school = ifelse(age_school==99, NA, age_school),
+         age_home = ifelse(age_home==99, NA, age_home),
+         age_ext_fam = ifelse(age_ext_fam==99, NA, age_ext_fam),
+         age_bffs = ifelse(age_bffs==99, NA, age_bffs),
+         age_dist_friends = ifelse(age_dist_friends==99, NA, age_dist_friends),
+         age_public = ifelse(age_public==99, NA, age_public))
+
+
+
+```
+
+

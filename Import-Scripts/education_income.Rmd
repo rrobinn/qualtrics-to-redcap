@@ -1,0 +1,491 @@
+---
+title: "Import Education & Income data to redcap"
+author: "Robin Sifre"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+---
+
+
+
+```{r setup, echo=FALSE}
+knitr::opts_knit$set(echo = TRUE,
+                      root.dir = "../")
+
+```
+
+
+```{r include=FALSE}
+library(tidyverse)
+library(lubridate)
+library(knitr)
+```
+
+
+```{r}
+# Loads data 
+source('01_setup_import.R')
+```
+
+
+# Education
+## Current data dictionary
+`p1_education_self`
+`p1_education_partner`
+`p2_education_self`
+`p2_education_partner`  
+
+1, Some schooling |  
+2, High school diploma |  
+3, Some college/Associate's degree |  
+4, College/Bachelor's degree |  
+5, Advanced degree (MA, MD, PhD, etc.) |  
+6, Other |  
+7, Other + some other schooling also listed  
+
+
+## Is data in new redcap?  
+yes
+```{r}
+redcap <- read.csv(file.path('redcap-data', 'new_redcap', 'GenderProjectReorg2_DATA.csv'))
+redcap %>% pull(p1_education_self) %>% unique() %>% as.numeric()  %>% sort()
+redcap %>% pull(p2_education_self) %>% unique() %>% as.numeric()  %>% sort()
+redcap %>% pull(p1_education_partner) %>% unique() %>% as.numeric()  %>% sort()
+redcap %>% pull(p2_education_partner) %>% unique() %>% as.numeric()  %>% sort()
+```
+
+
+## 2015  
+1, Some high school (not completed)  
+2, High school (2)  
+3, College (2 yr)  
+4, College (4 yr)  
+5, Master's  
+6. Doctorate  
+7. N/A  
+
+To do:  
+- recode 6-->5  
+- recode 7-->BLANK
+```{r}
+s15<- rbind(s15_gnc %>%
+  select(subjectid, child_id, 
+         education_self = Education,
+         education_partner = OtherPEdu), 
+s15_control %>%
+  select(subjectid, child_id, 
+         education_self = Education,
+         education_partner = OtherPEdu))
+```
+
+
+```{r}
+# Check values
+s15 %>% pull(education_self) %>% unique() 
+s15 %>% pull(education_partner) %>% unique() 
+```
+
+```{r}
+# Recode
+s15 = s15 %>%
+  mutate(education_self = as.character(education_self),
+         education_partner = as.character(education_partner),
+         education_self = recode(education_self, '6' = '5'),
+         education_partner = recode(education_partner, '6'='5', '7'=''))
+
+```
+
+```{r}
+# Separate based on parent
+s15=s15 %>%
+    mutate(parent = ifelse(substr(subjectid, 1,1)==8, 'p1','p2')) %>%
+    pivot_wider(id_cols = child_id, 
+                names_from = parent, 
+                names_glue = "{parent}_{.value}",
+                values_from = c(education_self, education_partner)) %>%
+  rename(subjectid = child_id) %>%
+  # Add identifier 
+  mutate(subjectid_visitnum = paste(subjectid, 's15', sep = '_')) %>%
+  relocate(subjectid_visitnum)
+```
+
+
+## 2017  
+1, Some schooling (1)  
+2, High school (2)  
+3, College (2 yr)  
+4, College (4 yr)  
+5, Advanced Degree  
+6. Other  
+
+```{r}
+s17 <- rbind(s17_control %>%
+  select(subjectid, child_id, 
+         education_self = Q116,
+         education_self_text = Q116_6_TEXT,
+         education_partner = Q125,
+         education_partner_text = Q125_6_TEXT),
+s17_gnc%>%
+  select(subjectid, child_id, 
+         education_self = Q216,
+         education_self_text = Q216_6_TEXT,
+         education_partner = Q225,
+         education_partner_text = Q225_6_TEXT),
+s17_sib %>%
+  select(subjectid, child_id, 
+         education_self = Q119,
+         education_self_text = Q119_6_TEXT,
+         education_partner = Q128,
+         education_partner_text = Q128_6_TEXT))
+  
+```
+
+```{r}
+# Check values
+s17 %>% pull(education_self) %>% unique() 
+s17 %>% pull(education_partner) %>% unique() 
+```
+
+```{r}
+# Review 'other' cases 
+s17 %>% 
+  filter(education_self==6) %>%
+  select(subjectid, child_id, education_self_text) 
+
+# Review 'other' cases 
+s17 %>% 
+  filter(education_partner==6) %>%
+  select(subjectid, child_id, education_partner_text) 
+```
+
+```{r}
+# Manual updates based on text entries 
+s17[s17$subjectid==9573, 'education_self'] = 4
+s17[s17$subjectid==84023, 'education_self'] = 4
+s17[s17$subjectid==85012, 'education_partner'] = 3 # Some college 
+s17[s17$subjectid==8565, 'education_partner'] = 4 
+s17[s17$subjectid==84091, 'education_partner'] = 2 
+s17[s17$subjectid==83091, 'education_partner'] = 2
+```
+
+```{r}
+s17<-s17 %>%
+  select(-c(education_self_text, education_partner_text)) %>%
+  mutate(education_self = as.character(education_self),
+         education_partner = as.character(education_partner))
+```
+
+```{r}
+# Separate based on parent
+s17=s17 %>%
+    mutate(parent = ifelse(substr(subjectid, 1,1)==8, 'p1','p2')) %>%
+    pivot_wider(id_cols = child_id, 
+                names_from = parent, 
+                names_glue = "{parent}_{.value}",
+                values_from = c(education_self, education_partner)) %>%
+  rename(subjectid = child_id) %>%
+  # Add identifier 
+  mutate(subjectid_visitnum = paste(subjectid, 's17', sep = '_')) %>%
+  relocate(subjectid_visitnum)
+```
+
+## 2018
+Not asked
+
+## 2019
+1, Some schooling (1)  
+2, High school (2)  
+3, College (2 yr)  
+4, College (4 yr)  
+5, Advanced Degree
+6. Other  
+7. NA (for partner)  
+
+To do:  
+- recode 7-->BLANK
+```{r}
+s19<-rbind(s19_parent_control %>%
+  select(subjectid, child_id,
+         education_self = Q125,
+         education_self_text = Q125_6_TEXT,
+         education_partner = Q126,
+         education_partner_text = Q126_6_TEXT),
+s19_parent_gnc %>%
+select(subjectid, child_id,
+         education_self = p1_education_self,
+         education_self_text = p1_education_self_6_TEXT,
+         education_partner = p1_education_part,
+         education_partner_text = p1_education_part_6_TEXT) )
+```
+
+
+```{r}
+# Check values
+s19 %>% pull(education_self) %>% unique() 
+s19 %>% pull(education_partner) %>% unique() 
+```
+
+```{r}
+# Recode 7 to blank
+s19 = s19 %>%
+  mutate(education_self = as.character(education_self),
+         education_partner = as.character(education_partner),
+         education_partner = recode(education_partner, '7'=''))
+
+```
+
+```{r}
+# Review 'other' cases 
+s19 %>% 
+  filter(education_self==6) %>%
+  select(subjectid, child_id, education_self_text) 
+
+# Review 'other' cases 
+s19 %>% 
+  filter(education_partner==6) %>%
+  select(subjectid, child_id, education_partner_text) 
+```
+
+```{r}
+s19[s19$subjectid==85099, 'education_self'] = '4'
+s19[s19$subjectid==850012, 'education_self'] = '4'
+s19[s19$subjectid==860066, 'education_self'] = '2'
+s19[s19$subjectid==860149, 'education_self'] = '5'
+s19[s19$subjectid==860259, 'education_self'] = '1'
+s19[s19$subjectid==860066, 'education_self'] = '1' 
+
+s19[s19$subjectid==8565, 'education_partner'] = '4' 
+s19[s19$subjectid==860142, 'education_partner'] = '1' 
+```
+
+```{r}
+s19 = s19 %>% 
+  select(-c(education_self_text, education_partner_text)) 
+```
+
+```{r}
+# Separate based on parent
+s19=s19 %>%
+    mutate(parent = ifelse(substr(subjectid, 1,1)==8, 'p1','p2')) %>%
+    pivot_wider(id_cols = child_id, 
+                names_from = parent, 
+                names_glue = "{parent}_{.value}",
+                values_from = c(education_self, education_partner)) %>%
+  rename(subjectid = child_id) %>%
+  # Add identifier 
+  mutate(subjectid_visitnum = paste(subjectid, 's19', sep = '_')) %>%
+  relocate(subjectid_visitnum)
+```
+
+## 2020
+Did not ask
+
+## Finalize education 
+```{r}
+edu<-rbind(s15, s17, s19)
+
+# Remove rows with no data
+edu = edu %>%
+  filter(if_any(contains('edu'), ~!is.na(.)))
+```
+
+
+## Convert to text and replace NA with blanks
+```{r}
+edu = edu %>%
+  # Apply the to_text function
+  mutate_at(vars(matches('edu')), to_text) 
+```
+
+## Check final values
+```{r}
+edu %>% pull(p1_education_self) %>% unique() %>% as.numeric() %>% sort()
+edu %>% pull(p1_education_partner) %>% unique() %>% as.numeric() %>% sort()
+edu %>% pull(p2_education_self) %>% unique() %>% as.numeric() %>% sort()
+edu %>% pull(p2_education_partner) %>% unique() %>% as.numeric() %>% sort()
+```
+
+
+
+## Save
+```{r}
+write.csv(edu, 'data_to_import/edu.csv', row.names = FALSE)
+```
+
+
+# Income
+## Current Data Dictionary:
+1, less than $25,000/yr |  
+2, $25,001-$50,000/yr |  
+3, $50,001-$75,000/yr |  
+4, $75,001-$125,000/yr |  
+5, greater than $125,000/yr |  
+6, $50,001-$75,000/yr & $75,001-$125,000/yr |  
+7, $25,001-$50,000/yr & $50,001-$75,000/yr |  
+8, less than $25,000/yr & $25,001-$50,000/yr
+
+## Is data in new redcap?
+```{r}
+redcap %>% pull(p1_income) %>% unique() %>% as.numeric() %>% sort()
+redcap %>% pull(p2_income) %>% unique() %>% as.numeric() %>% sort()
+```
+
+
+## 2015
+1, less than $25,000/yr |
+2, $25,001-$50,000/yr |
+3, $50,001-$75,000/yr |
+4, $75,001-$125,000/yr |
+5, greater than $125,000/yr | 
+
+```{r}
+s15<-rbind(s15_control %>%
+  select(subjectid, child_id, 
+         income = Income),
+s15_gnc %>%
+  select(subjectid, child_id, 
+         income = Income))
+```
+
+```{r}
+# Check values
+s15 %>% pull(income) %>% unique() 
+s15 %>% pull(income) %>% unique() 
+```
+
+```{r}
+# Separate based on parent
+s15=s15 %>%
+    mutate(parent = ifelse(substr(subjectid, 1,1)==8, 'p1','p2')) %>%
+    pivot_wider(id_cols = child_id, 
+                names_from = parent, 
+                names_glue = "{parent}_{.value}",
+                values_from = income) %>%
+  rename(subjectid = child_id) %>%
+  # Add identifier 
+  mutate(subjectid_visitnum = paste(subjectid, 's15', sep = '_')) %>%
+  relocate(subjectid_visitnum)
+```
+
+## 2017  
+- "What is your estimated annual household income"  
+- Item that I did *not* import because this item does not get asked anywhere else, and I thought it was confusing as this should be the same answer as the first income question: "What is your child's other parent/guardian's estimated annual household income"  
+
+1, less than $25,000/yr |  
+2, $25,001-$50,000/yr |  
+3, $50,001-$75,000/yr |  
+4, $75,001-$125,000/yr |  
+5, greater than $125,000/yr | 
+```{r}
+s17<-rbind(s17_control %>%
+  select(child_id, subjectid,
+         income = Q114, income_partner = Q123),
+s17_gnc %>%
+  select(child_id, subjectid,
+         income = Q214, income_partner = Q223),
+s17_sib %>%
+  select(child_id, subjectid,
+         income = Q117, income_partner=Q126))
+```
+
+```{r}
+# Check values
+s17 %>% pull(income) %>% unique() %>% as.numeric() %>% sort()
+s17 %>% pull(income_partner) %>% unique() %>% as.numeric() %>% sort()
+```
+
+```{r}
+# Separate based on parent
+s17=s17 %>%
+    mutate(parent = ifelse(substr(subjectid, 1,1)==8, 'p1','p2')) %>%
+    pivot_wider(id_cols = child_id, 
+                names_from = parent, 
+                names_glue = "{parent}_{.value}",
+                values_from = c(income, income_partner)) %>%
+  rename(subjectid = child_id) %>%
+  # Add identifier 
+  mutate(subjectid_visitnum = paste(subjectid, 's17', sep = '_')) %>%
+  relocate(subjectid_visitnum)
+```
+
+## 2018
+Did not ask
+
+## 2019
+```{r}
+s19<-rbind(s19_parent_control %>%
+  select(child_id, subjectid, 
+         income = Q121),
+s19_parent_gnc %>%
+  select(child_id, subjectid,
+         income= s1_p1_household_inco))
+```
+
+```{r}
+# Check values
+s19 %>% pull(income) %>% unique() 
+s19 %>% pull(income) %>% unique() 
+```
+
+```{r}
+# Separate based on parent
+s19=s19 %>%
+    mutate(parent = ifelse(substr(subjectid, 1,1)==8, 'p1','p2')) %>%
+    pivot_wider(id_cols = child_id, 
+                names_from = parent, 
+                names_glue = "{parent}_{.value}",
+                values_from = income) %>%
+  rename(subjectid = child_id) %>%
+  # Add identifier 
+  mutate(subjectid_visitnum = paste(subjectid, 's19', sep = '_')) %>%
+  relocate(subjectid_visitnum)
+```
+
+
+## 2020
+Did not ask
+
+## Finalize Income 
+```{r}
+income<-bind_rows(s15, s17, s19)
+
+# Remove rows with no data
+income = income %>%
+  filter(if_any(contains('income'), ~!is.na(.)))
+```
+
+
+## Convert to text and replace NA with blanks
+```{r}
+income = income %>%
+  # Apply the to_text function
+  mutate_at(vars(matches('income')), to_text) %>%
+  select(-c(subjectid, p1_income_partner, p2_income_partner))
+```
+
+## Check final values
+```{r}
+income %>% pull(p1_income) %>% unique() %>% as.numeric() %>% sort()
+income %>% pull(p2_income) %>% unique() %>% as.numeric() %>% sort()
+```
+
+```{r}
+income %>%
+  mutate(p1_income = as.numeric(p1_income)) %>%
+  filter(!is.na(p1_income)) %>%
+ggplot(data = ., aes(x = p1_income)) +
+  geom_histogram(binwidth =1, color='black')
+
+income %>%
+  mutate(p2_income = as.numeric(p2_income)) %>%
+  filter(!is.na(p2_income)) %>%
+ggplot(data = ., aes(x = p2_income)) +
+  geom_histogram(binwidth =1, color='black')
+```
+
+
+## Save
+```{r}
+write.csv(income, 'data_to_import/income.csv', row.names = FALSE)
+```

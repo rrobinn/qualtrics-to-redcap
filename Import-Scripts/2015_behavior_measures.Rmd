@@ -1,0 +1,259 @@
+---
+title: "Import Behavior Data to RedCap"
+author: "Jessica Glazier"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+# About  
+Script cleans behavior data from 2015 & gets it ready for import.  
+Script also generates data dictionary items for behavior measures.  
+
+# Behavior measures (2yo, 3yo, 4yo, 5yo, last year)
+0 = Never | 1 = Sometimes | 2 = Often | 3 = Always 
+
+```{r setup, include=FALSE, message=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "./")
+
+rm(list = ls())
+
+library(tidyverse)
+library(lubridate)
+library(DT)
+library(knitr)
+```
+
+```{r}
+# Loads data 
+source('01_setup_import.R')
+
+```
+
+# Check Values
+
+## Control
+
+### 2yo behavior
+```{r}
+test = s15_control %>% 
+  select(matches('2yoBeh')) 
+
+min_vals = apply(test, 2, min, na.rm=T)
+max_vals = apply(test, 2, max, na.rm=T)
+df=data.frame(min_vals, max_vals)
+datatable(data.frame(min_vals, max_vals), filter='top')
+```
+
+### 3yo behavior
+```{r}
+test = s15_control %>% 
+  select(matches('3yoBeh')) 
+
+min_vals = apply(test, 2, min, na.rm=T)
+max_vals = apply(test, 2, max, na.rm=T)
+df=data.frame(min_vals, max_vals)
+datatable(data.frame(min_vals, max_vals), filter='top')
+```
+
+### 4yo behavior
+```{r}
+test = s15_control %>% 
+  select(matches('4yoBeh')) 
+
+min_vals = apply(test, 2, min, na.rm=T)
+max_vals = apply(test, 2, max, na.rm=T)
+df=data.frame(min_vals, max_vals)
+datatable(data.frame(min_vals, max_vals), filter='top')
+```
+
+### 5yo behavior
+```{r}
+test = s15_control %>% 
+  select(matches('5yoBeh')) 
+
+min_vals = apply(test, 2, min, na.rm=T)
+max_vals = apply(test, 2, max, na.rm=T)
+df=data.frame(min_vals, max_vals)
+datatable(data.frame(min_vals, max_vals), filter='top')
+```
+
+### lastyr behavior
+```{r}
+test = s15_control %>% 
+  select(matches('LastYrBeh')) 
+
+min_vals = apply(test, 2, min, na.rm=T)
+max_vals = apply(test, 2, max, na.rm=T)
+df=data.frame(min_vals, max_vals)
+datatable(data.frame(min_vals, max_vals), filter='top')
+```
+
+
+## GNC
+
+### 2yo behavior
+```{r}
+test = s15_gnc %>% 
+  select(matches('2yoBeh')) 
+
+min_vals = apply(test, 2, min, na.rm=T)
+max_vals = apply(test, 2, max, na.rm=T)
+df=data.frame(min_vals, max_vals)
+datatable(data.frame(min_vals, max_vals), filter='top')
+```
+
+### 3yo behavior
+```{r}
+test = s15_gnc %>% 
+  select(matches('3yoBeh')) 
+
+min_vals = apply(test, 2, min, na.rm=T)
+max_vals = apply(test, 2, max, na.rm=T)
+df=data.frame(min_vals, max_vals)
+datatable(data.frame(min_vals, max_vals), filter='top')
+```
+
+### 4yo behavior
+```{r}
+test = s15_gnc %>% 
+  select(matches('4yoBeh')) 
+
+min_vals = apply(test, 2, min, na.rm=T)
+max_vals = apply(test, 2, max, na.rm=T)
+df=data.frame(min_vals, max_vals)
+datatable(data.frame(min_vals, max_vals), filter='top')
+```
+
+### 5yo behavior
+```{r}
+test = s15_gnc %>% 
+  select(matches('5yoBeh')) 
+
+min_vals = apply(test, 2, min, na.rm=T)
+max_vals = apply(test, 2, max, na.rm=T)
+df=data.frame(min_vals, max_vals)
+datatable(data.frame(min_vals, max_vals), filter='top')
+```
+
+### lastyr behavior
+```{r}
+test = s15_gnc %>% 
+  select(matches('LastYrBeh')) 
+
+min_vals = apply(test, 2, min, na.rm=T)
+max_vals = apply(test, 2, max, na.rm=T)
+df=data.frame(min_vals, max_vals)
+datatable(data.frame(min_vals, max_vals), filter='top')
+```
+# Selecting necessary variables and combining control and GNC datasets
+```{r}
+beh_control <- s15_control %>% select(child_id, subjectid, StartDate, X2yoBeh_WishGirl:X6.12)
+
+beh_gnc <- s15_gnc %>% select(child_id, subjectid, StartDate, X2yoBeh_WishGirl:X6.12)
+
+beh_data <- rbind(beh_control, beh_gnc)
+
+```
+
+# Separate Based on Parent Responses & rename columns
+
+```{r}
+beh_data$subjectid2 <- beh_data$subjectid
+
+# Creating parentid column
+beh_data <- beh_data %>% mutate(parent = if_else(grepl('^8', subjectid), "p1", "p2"))
+
+#view(beh_data[,c("child_id", "subjectid", "parent", "p1_subjectid", "p2_subjectid")])
+
+beh_data_wide <- beh_data %>% pivot_wider(id_cols = child_id, names_from = parent, values_from = c(StartDate:subjectid2))
+
+data_names <- colnames(beh_data_wide)[-1]
+data_names_new <- c()
+for (i in data_names) {
+  data_names_new[i] <- ifelse(str_starts(i, "X"), sub('.', '', i), i)
+  data_names_new[i] <- ifelse(str_detect(data_names_new[i], "p1"), paste("p1", data_names_new[i], sep = "_"), paste("p2", data_names_new[i], sep = "_"))
+  data_names_new[i] <- gsub('.{3}$', '', data_names_new[i])
+  data_names_new[i] <- tolower(data_names_new[i])
+}
+colnames(beh_data_wide)[-1] <- data_names_new
+
+beh_data_wide <- beh_data_wide %>% mutate(subjectid_visitnum = paste0(child_id, "_s15"))
+
+names(beh_data_wide)[names(beh_data_wide) == 'p1_6.4'] <- 'p1_2yobeh_comments'
+names(beh_data_wide)[names(beh_data_wide) == 'p2_6.4'] <- 'p2_2yobeh_comments'
+
+names(beh_data_wide)[names(beh_data_wide) == 'p1_6.6'] <- 'p1_3yobeh_comments'
+names(beh_data_wide)[names(beh_data_wide) == 'p2_6.6'] <- 'p2_3yobeh_comments'
+
+names(beh_data_wide)[names(beh_data_wide) == 'p1_6.8'] <- 'p1_4yobeh_comments'
+names(beh_data_wide)[names(beh_data_wide) == 'p2_6.8'] <- 'p2_4yobeh_comments'
+
+names(beh_data_wide)[names(beh_data_wide) == 'p1_6.1'] <- 'p1_5yobeh_comments'
+names(beh_data_wide)[names(beh_data_wide) == 'p2_6.1'] <- 'p2_5yobeh_comments'
+
+names(beh_data_wide)[names(beh_data_wide) == 'p1_6.12'] <- 'p1_lastyrbeh_comments'
+names(beh_data_wide)[names(beh_data_wide) == 'p2_6.12'] <- 'p2_lastyrbeh_comments'
+
+# Put all p1_ and p2_ items together
+beh_data_wide <- beh_data_wide[, order(colnames(beh_data_wide))]
+
+# Adding "source" column
+beh_data_wide$source <- "s15"
+
+# Adding "visit_number" column
+beh_data_wide$visit_number <- "s15"
+
+# creating "visit_date" column
+beh_data_wide$p1_startdate <- as.Date(beh_data_wide$p1_startdate)
+beh_data_wide$p2_startdate <- as.Date(beh_data_wide$p2_startdate)
+beh_data_wide <- beh_data_wide %>% 
+  mutate(visit_date = case_when(is.na(p1_startdate) & is.na(p2_startdate) ~ NA_Date_,
+                                !is.na(p1_startdate) & is.na(p2_startdate) ~ p1_startdate,
+                                is.na(p1_startdate) & !is.na(p2_startdate) ~ p2_startdate,
+                                !is.na(p1_startdate) & !is.na(p2_startdate) & p1_startdate < p2_startdate ~ p1_startdate,
+                                !is.na(p1_startdate) & !is.na(p2_startdate) & p2_startdate < p1_startdate ~ p2_startdate,
+                                !is.na(p1_startdate) & !is.na(p2_startdate) & p2_startdate == p1_startdate ~ p1_startdate))
+#view(beh_data_wide[,c("subjectid", "p1_startdate", "p2_startdate", "visit_date")])
+beh_data_wide <- beh_data_wide %>% select(-c(p1_startdate, p2_startdate)) %>% rename(p1_subjectid = p1_subjectid2, p2_subjectid = p2_subjectid2)
+
+# Finalize for import
+beh_data_wide <- beh_data_wide %>% rename(subjectid = child_id) %>% relocate(subjectid_visitnum, subjectid, p1_subjectid, p2_subjectid, visit_date, source, visit_number)
+
+```
+
+# Convert to text and replace NA with blanks
+```{r}
+beh_data_wide <- beh_data_wide %>% mutate_at(vars(matches('beh')), to_text)
+```
+
+
+# Make data dictionary 
+Variable / Field Name	Form Name	Section Header	Field Type	Field Label	Choices, Calculations, OR Slider Labels
+```{r}
+var_names <- beh_data_wide %>% select(matches('beh')) %>% colnames()
+
+my_dict <- data.frame(`Variable / Field Name` = var_names,
+           `Form Name` = 'Behavior Measures',
+           `Section Header` = 'one_off_2015',
+           `Field Type` = 'text',
+           `Field Label` = var_names,
+            `Choices, Calculations, OR Slider Labels` = '1, Never | 2, Sometimes | 3, Often | 4, Always',
+           `Field Note` = '',
+           `Text Validation Type OR Show Slider Number` = 'number',
+           `Text Validation Min` = 1,
+            `Text Validation Max` =4)
+my_dict <- my_dict %>% mutate(Choices..Calculations..OR.Slider.Labels = if_else(str_detect(Variable...Field.Name, "comments"), "", Choices..Calculations..OR.Slider.Labels), 
+                               Text.Validation.Type.OR.Show.Slider.Number = if_else(str_detect(Variable...Field.Name, "comments"), "", Text.Validation.Type.OR.Show.Slider.Number), 
+                               Text.Validation.Min = if_else(str_detect(Variable...Field.Name, "comments"), NA_real_, Text.Validation.Min),
+                               Text.Validation.Max = if_else(str_detect(Variable...Field.Name, "comments"), NA_real_, Text.Validation.Max))
+           
+```
+
+# Save data & dict
+```{r}
+write.csv(beh_data_wide, 'data_to_import/behavior_measures.csv', row.names = FALSE)
+write.csv(my_dict, 'new_data_dict_items/behavior_measures.csv', row.names=FALSE)
+```
+
+

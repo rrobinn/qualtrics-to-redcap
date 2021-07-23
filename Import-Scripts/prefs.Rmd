@@ -1,0 +1,181 @@
+---
+title: "Import Prefs"
+author: "Robin Sifre"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_knit$set(echo = TRUE,
+                      root.dir = "../")
+
+```
+
+```{r include=FALSE}
+# Loads data 
+source('01_setup_import.R')
+library(tidyverse)
+library(lubridate)
+library(DT)
+library(knitr)
+```
+
+# Current data dictionary
+`p1pref` | yesno | P1 Received Preferences?  
+`p1_pref_clothes` 
+`p1_pref_toys`  
+`p1_pref_media`  
+`p1_pref_hair`  
+`p1_pref_swim`  
+`p1_pref_avatar`  
+`p1_pref_stories`  
+`p1_pref_pronouns`  
+`p1_pref_friends`  
+| 1, Boy | 2, Girl | 3, Neutral Sex | 4, Boy + Girl | 5, Boy + Neutral Sex | 6, Girl + Neutral Sex | 7, Girl + Boy + Neutral Sex  
+
+## Is data in new redcap?
+No (most missing)
+```{r}
+new_redcap %>%
+  select(p1_pref_clothes,
+         p1_pref_toys) %>%
+  head()
+```
+
+## Is data in old redcap?  
+Yes. Prep to migrate to new redcap. 
+```{r}
+old_pref <- old_redcap %>%
+  select(subjectid_visitnum,
+         p1pref,
+         p1_pref_clothes, 
+         p1_pref_toys,
+         p1_pref_media ,
+         p1_pref_hair,
+         p1_pref_swim ,
+         p1_pref_stories ,
+         p1_pref_pronouns ,
+         p1_pref_friends,
+         #
+         p2pref,
+         p2_pref_clothes, 
+         p2_pref_toys,
+         p2_pref_media ,
+         p2_pref_hair,
+         p2_pref_swim ,
+         p2_pref_stories ,
+         p2_pref_pronouns ,
+         p2_pref_friends) 
+
+old_pref = old_pref %>%
+  # remove rows with no data 
+  filter(if_any(contains('pref'), ~!is.na(.))) %>%
+  # Convert NA to blanks
+  mutate_at(vars(matches('pref')), to_text) 
+```
+
+
+## 2015
+
+```{r}
+# 1, Boys | 2, Girls | 3, Neutral
+s15<-rbind(s15_control %>%
+  select(subjectid, child_id,
+         pref_clothes = Prefs_Cloth, 
+         pref_toys = Prefs_Toy,
+         pref_media = Prefs_Media,
+         pref_hair = Prefs_Hair,
+         pref_swim = Prefs_Swim,
+         pref_stories = Prefs_StoryProtag,
+         pref_pronouns = Prefs_Pronoun,
+         pref_friends = Prefs_Peer), 
+s15_gnc %>%
+  select(subjectid, child_id,
+         pref_clothes = Prefs_Cloth, 
+         pref_toys = Prefs_Toy,
+         pref_media = Prefs_Media,
+         pref_hair = Prefs_Hair,
+         pref_swim = Prefs_Swim,
+         pref_stories = Prefs_StoryProtag,
+         pref_pronouns = Prefs_Pronoun,
+         pref_friends = Prefs_Peer))
+```
+
+### Recode
+```{r}
+recode_prefs <- function(x) {
+  recoded <- recode(x, 
+       '1,2'='4', # Boy + Girl
+       '1,3'='5', # Boy + Neutral Sex
+       '2,3'='6', # Girl + Neutral Sex 
+       '1,2,3'='7') # Girl + Boy + Neutral Sex  
+  return(recoded)
+} 
+
+```
+
+```{r}
+s15 = s15 %>%
+    # Apply the recode_prefs function to all prefs items 
+    mutate_at(vars(matches('pref')), recode_prefs)
+
+# Rows that contain data 
+keep<-s15 %>%
+  filter(if_any(contains('pref'), ~!.=='')) %>%
+  pull(subjectid)
+
+# Make variable that indicates if parent received task
+s15<-s15 %>%
+  mutate(pref = ifelse(subjectid %in% keep, 1, 0)) 
+
+```
+
+### Test new values
+```{r}
+test = s15 %>% 
+  select(matches('pref')) %>%
+  mutate_at(vars(matches('pref')), as.numeric)
+
+min_vals = apply(test, 2, min, na.rm=T)
+max_vals = apply(test, 2, max, na.rm=T)
+data.frame(min_vals, max_vals)
+
+
+```
+
+
+### Separate parent data 
+```{r}
+s15 = s15 %>%
+    mutate(parent = ifelse(substr(subjectid, 1,1)==8, 'p1','p2')) %>%
+    pivot_wider(id_cols = child_id, 
+                names_from = parent, 
+                names_glue = "{parent}_{.value}",
+                values_from = c(pref_clothes:pref))
+```
+
+### Get data ready for import
+```{r}
+# Finalize for import
+s15 = s15 %>%
+  rename(subjectid = child_id,
+         p1pref = p1_pref,
+         p2pref = p2_pref) %>%
+  # Add identifier 
+  mutate(subjectid_visitnum = paste(subjectid, 's15', sep = '_')) %>%
+  relocate(subjectid_visitnum) %>%
+  # Apply the to_text function to items 
+  mutate_at(vars(matches('pref')), to_text)
+
+s15 = s15 %>% select(-subjectid)
+```
+
+```{r}
+toimport <- rbind(old_pref, s15)
+write.csv(toimport, 'data_to_import/prefs.csv', row.names = FALSE)
+
+```
+
