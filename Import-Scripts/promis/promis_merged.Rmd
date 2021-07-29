@@ -1,0 +1,1153 @@
+---
+title: "PROMIS"
+author: "Robin Sifre"
+date: "3/17/2021"
+output: html_document
+---
+
+
+```{r setup, include=FALSE, message=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(DT)
+library(tidyverse)
+library(knitr)
+library(readxl)
+library(lubridate)
+
+source('/Users/sifre002/Documents/GitHub/FYP/DataOrg_R_funcs/remove_unmerged.R')
+source('/Users/sifre002/Documents/GitHub/FYP/DataOrg_R_funcs/get_most_recent_visnum.R')
+source('/Users/sifre002/Documents/GitHub/FYP/Qualtrics/qualtrics_cleaning/qualtrics_cleaning_funcs/qualtrics_cleaning_funcs.R')
+
+```
+
+# About 
+- This script reads qualtrics data from 2015, 2017, 2018, 2019 (parent and kid), and 2020, and combines all of the PROMIS data.  When necessary, it renames the items and recodes the values.  
+- It then reads in the current data from redcap to determine the last visit a child had.  
+
+- Note - the 2019 parent & kid data are considered one visit 
+
+# Items in redcap
+p1_depressionq (yesno	P1 Received Depression?),
+p1_dep_tscore,
+p1_dep1,
+p1_dep2, 
+p1_dep3, 
+p1_dep4, 
+p1_dep5, 
+p1_dep6, 
+
+p1_anxietyq,
+p1_anx_tscore,
+p1_anx1,
+p1_anx2,
+p1_anx3,
+p1_anx4,
+p1_anx5,
+p1_anx6,
+p1_anx7,
+p1_anx8,
+
+p1_peerq,
+p1_peer_tscore,
+p1_peer1,
+p1_peer2,
+p1_peer3,
+p1_peer4,
+p1_peer5,
+p1_peer6,
+p1_peer7,
+
+# Data
+```{r read_data, cache=TRUE, echo=TRUE}
+data_dir = '/Users/sifre002/Documents/GitHub/FYP/Qualtrics/data/'
+# Survey data
+s15_gnc = read.csv(paste(data_dir, '2015/s15_gnc_clean.csv', sep=''), stringsAsFactors=FALSE)
+s15_control = read.csv(paste(data_dir, '2015/s15_control_clean.csv', sep=''), stringsAsFactors=FALSE)
+
+s17_gnc = read.csv(paste(data_dir, '2017/s17_gnc_clean.csv', sep=''), stringsAsFactors=FALSE)
+s17_control = read.csv(paste(data_dir, '2017/s17_control_clean.csv', sep=''), stringsAsFactors=FALSE)
+s17_sib = read.csv(paste(data_dir, '2017/s17_sib_clean.csv', sep=''), stringsAsFactors=FALSE)
+
+s18_gnc = read.csv(paste(data_dir, '2018/s18_gnc_clean.csv', sep=''), stringsAsFactors=FALSE)
+s18_control = read.csv(paste(data_dir, '2018/s18_control_clean.csv', sep=''), stringsAsFactors=FALSE)
+s18_sib = read.csv(paste(data_dir, '2018/s18_sib_clean.csv', sep=''), stringsAsFactors=FALSE)
+
+s19_kid_gnc = read.csv(paste(data_dir, '2019/s19_kid_gnc_clean.csv', sep=''), stringsAsFactors=FALSE)
+s19_kid_control = read.csv(paste(data_dir, '2019/s19_kid_control_clean.csv', sep=''), stringsAsFactors=FALSE)
+
+s19_parent_gnc = read.csv(paste(data_dir, '2019/s19_parent_gnc_clean.csv', sep=''), stringsAsFactors=FALSE)
+s19_parent_control = read.csv(paste(data_dir, '2019/s19_parent_control_clean.csv', sep=''), stringsAsFactors=FALSE)
+
+s20_1  = read.csv(paste(data_dir, '2020/s20_clean.csv', sep=''), stringsAsFactors=FALSE)
+s20_2 = read.csv(paste(data_dir, '2020/s20_sib_clean.csv', sep=''), stringsAsFactors=FALSE)
+
+
+# DOB 
+dob = read.csv('~/Documents/GitHub/FYP/RedCap_Import_Scripts/data_to_import/TYP_DOB.csv', stringsAsFactors=FALSE)
+
+# tscores
+tscores = read.csv('/Users/sifre002/Documents/GitHub/FYP/RedCap_Import_Scripts/promis/tlookup.csv', stringsAsFactors=FALSE)
+```
+
+```{r}
+check_promis <- function(df) {
+  vars = colnames(df)
+  vars = vars[grepl('dep|anx',vars)]
+  
+  problem_vars = c('')
+  
+  for (v in vars) {
+    vals = df %>% pull(v) %>% unique()
+    if (length(setdiff(vals, c(0,1,2,3,4, NA, NA))) > 0) {
+      problem_vars = c(problem_vars, v)
+    }
+  }
+  return(problem_vars)
+  }
+```
+
+Note: In redcap promis_anx/promis_dep ranged from 0-4. Peer ranges from 1-5. 
+
+# 2015
+## Rename items 
+```{r s15_control, echo=TRUE}
+# Control
+# Promis: 0-4; Peer: 1-5
+items = c('PromisAnx_1', 'PromisAnx_2', 'PromisAnx_3', 'PromisAnx_4',
+ 'PromisAnx_5', 'PromisAnx_6', 'PromisAnx_7', 'PromisAnx_8',
+ 'PromisDep_1', 'PromisDep_2', 'PromisDep_3', 'PromisDep_4',
+ 'PromisDep_5', 'PromisDep_6', 'PromisPeer_1',   'PromisPeer_2',
+ 'PromisPeer_3', 'PromisPeer_4', 'PromisPeer_5', 'PromisPeer_6',
+ 'PromisPeer_7')
+
+items = c('subjectid', 'child_id', 'StartDate', items)
+
+s15_control = s15_control %>% 
+  select(items) %>%
+  rename(visit_date=StartDate, anx1=PromisAnx_1,
+         anx2=PromisAnx_2,  anx3=PromisAnx_3,
+         anx4=PromisAnx_4,   anx5=PromisAnx_5,
+         anx6=PromisAnx_6,   anx7=PromisAnx_7,
+         anx8=PromisAnx_8,     dep1=PromisDep_1,
+         dep2=PromisDep_2,    dep3=PromisDep_3,
+         dep4=PromisDep_4,   dep5=PromisDep_5,
+         dep6=PromisDep_6,   peer1=PromisPeer_1,
+         peer2=PromisPeer_2,    peer3=PromisPeer_3,
+         peer4=PromisPeer_4,  peer5=PromisPeer_5,
+         peer6=PromisPeer_6,    peer7=PromisPeer_7) 
+```
+
+```{r}
+# Promis: 0-4
+# Peer: 1-5
+s15_gnc = s15_gnc %>% 
+  select(items) %>%
+  rename(visit_date=StartDate,
+         anx1=PromisAnx_1,         anx2=PromisAnx_2,
+         anx3=PromisAnx_3,         anx4=PromisAnx_4,
+         anx5=PromisAnx_5,         anx6=PromisAnx_6,
+         anx7=PromisAnx_7,         anx8=PromisAnx_8,
+         dep1=PromisDep_1,         dep2=PromisDep_2,
+         dep3=PromisDep_3,         dep4=PromisDep_4,
+         dep5=PromisDep_5,         dep6=PromisDep_6,
+         peer1=PromisPeer_1,         peer2=PromisPeer_2,
+         peer3=PromisPeer_3,         peer4=PromisPeer_4,
+         peer5=PromisPeer_5,         peer6=PromisPeer_6,
+         peer7=PromisPeer_7)
+
+
+s15 = rbind(s15_control,s15_gnc)
+```
+
+## Make wide 
+```{r}
+# Widen for cases where both parents answered 
+s15_wide = s15 %>% 
+  mutate(parent = ifelse(str_sub(subjectid, 1,1)==8, 1, 2)) %>%
+  pivot_wider(id_cols = child_id, names_from=parent, values_from = c(subjectid, anx1:peer7), names_prefix = 'p')
+
+# Fix column names to match redcap
+new_names = paste('p', sapply(strsplit(colnames(s15_wide), '_p'), '[', 2), 
+                  '_', sapply(strsplit(colnames(s15_wide), '_p'), '[', 1), sep = '')
+colnames(s15_wide) = new_names
+colnames(s15_wide)[1] = 'subjectid'
+
+# Rejoin with visit date (if parent did different dats, just pick one)
+temp = s15 %>% 
+  select(subjectid=child_id, visit_date) %>%
+  group_by(subjectid) %>%
+  mutate(n= c(1:n())) %>%
+  filter(n==1) %>%
+  ungroup() %>%
+  select(-n)
+
+s15_wide = left_join(s15_wide, temp, by = 'subjectid')
+
+```
+
+## Check that the values are between 0-4 for PROMIS
+```{r}
+check_promis(s15_wide)
+```
+
+
+
+# 2017
+## Rename items 
+```{r}
+# For all 2017 forms
+# PROMIS:1-5, 
+# Peer 1-5
+items = c('StartDate',
+          'Q160','Q161','Q162',
+          'Q163','Q164','Q165',
+          'Q166','Q167',
+          'Q153','Q154','Q155','Q156',
+          'Q157','Q158','Q169',
+          'Q170','Q171','Q172','Q173','Q174','Q175')
+items = c('subjectid', 'child_id', 'StartDate', items)
+
+s17_gnc =s17_gnc %>% 
+  select(items) %>% 
+  rename(visit_date=StartDate,
+         anx1=Q160,anx2=Q161,anx3=Q162,anx4=Q163,anx5=Q164,anx6=Q165,anx7=Q166,anx8=Q167,
+         dep1=Q153,dep2=Q154,dep3=Q155,dep4=Q156,dep5=Q157,dep6=Q158,
+         peer1=Q169,peer2=Q170,peer3=Q171,peer4=Q172,peer5=Q173,peer6=Q174,peer7=Q175)
+```
+
+```{r}
+items=c('StartDate',
+        'Q60','Q61','Q62','Q63',
+        'Q64','Q65','Q66', 'Q67','Q53',
+        'Q54','Q55','Q56','Q57',
+        'Q58','Q69','Q70','Q71',
+        'Q72','Q73','Q74','Q75')
+items = c('subjectid', 'child_id', 'StartDate', items)
+
+# Control
+s17_control = s17_control %>%
+  select(items) %>%
+  rename(visit_date=StartDate,
+         anx1=Q60,anx2=Q61,anx3=Q62,anx4=Q63,
+         anx5=Q64,anx6=Q65,anx7=Q66,anx8=Q67,dep1=Q53,
+         dep2=Q54,dep3=Q55,dep4=Q56,dep5=Q57,
+         dep6=Q58,peer1=Q69,peer2=Q70,peer3=Q71,
+         peer4=Q72,peer5=Q73,peer6=Q74,peer7=Q75)
+```
+
+
+```{r}
+# Sib
+# PROMIS:1-5, 
+# Peer 1-5
+items=c('StartDate',
+        'Q63','Q64','Q65','Q66',
+        'Q67','Q68','Q69', 'Q70','Q56',
+        'Q57','Q58','Q59','Q60',
+        'Q61','Q72','Q73','Q74',
+        'Q75','Q76','Q77','Q78')
+items = c('subjectid', 'child_id', 'StartDate', items)
+
+s17_sib=s17_sib %>% 
+  select(items) %>%
+  rename(visit_date=StartDate,
+         anx1=Q63,anx2=Q64,anx3=Q65,anx4=Q66,
+         anx5=Q67,anx6=Q68,anx7=Q69,anx8=Q70,dep1=Q56,
+         dep2=Q57,dep3=Q58,dep4=Q59,dep5=Q60,
+         dep6=Q61,peer1=Q72,peer2=Q73,peer3=Q74,
+         peer4=Q75,peer5=Q76,peer6=Q77,peer7=Q78)
+
+s17 = rbind(s17_control,s17_gnc, s17_sib)
+```
+
+## Recode items 
+```{r echo=TRUE}
+s17=s17 %>%
+  mutate(anx1 = anx1-1,
+         anx2 = anx2-1,
+         anx3 = anx3-1,
+         anx4 = anx4-1,
+         anx5 = anx5-1,
+         anx6 = anx6-1,
+         anx7 = anx7-1,
+         anx8 = anx8-1,
+         dep1 = dep1-1, 
+         dep2 = dep2-1, 
+         dep3 = dep3-1, 
+         dep4 = dep4-1, 
+         dep5 = dep5-1, 
+         dep6 = dep6-1)
+```
+
+## Make wide 
+```{r}
+# Widen for cases where both parents answered 
+s17_wide = s17 %>% 
+  mutate(parent = ifelse(str_sub(subjectid, 1,1)==8, 1, 2)) %>%
+  pivot_wider(id_cols = child_id, names_from=parent, values_from = c(subjectid, anx1:peer7), names_prefix = 'p')
+
+# Fix column names to match redcap
+new_names = paste('p', sapply(strsplit(colnames(s17_wide), '_p'), '[', 2), 
+                  '_', sapply(strsplit(colnames(s17_wide), '_p'), '[', 1), sep = '')
+colnames(s17_wide) = new_names
+colnames(s17_wide)[1] = 'subjectid'
+
+# Rejoin with visit date (if parent did different dats, just pick one)
+temp = s17 %>% 
+  select(subjectid=child_id, visit_date) %>%
+  group_by(subjectid) %>%
+  mutate(n= c(1:n())) %>%
+  filter(n==1) %>%
+  ungroup() %>%
+  select(-n)
+
+s17_wide = left_join(s17_wide, temp, by = 'subjectid')
+```
+
+
+## Check that the values are between 0-4 for PROMIS
+```{r}
+check_promis(s17_wide)
+```
+
+
+
+# 2018  
+## Rename items 
+```{r s18_gnc}
+# GNC
+# Promis: 0-4
+# Peer 1-5
+items = c('StartDate',
+'Q30','Q31','Q32','Q33',
+'Q34','Q35','Q36', 'Q37','Q23',
+'Q24','Q25','Q26','Q27',
+'Q28','Q39','Q40','Q41',
+'Q42','Q43','Q44','Q45')
+items = c('subjectid', 'child_id', 'StartDate', items)
+
+s18_gnc = s18_gnc %>% 
+  select(items) %>%
+  rename(visit_date=StartDate,
+anx1=Q30,anx2=Q31,anx3=Q32,anx4=Q33,
+anx5=Q34,anx6=Q35,anx7=Q36,anx8=Q37,dep1=Q23,
+dep2=Q24,dep3=Q25,dep4=Q26,dep5=Q27,
+dep6=Q28,peer1=Q39,peer2=Q40,peer3=Q41,
+peer4=Q42,peer5=Q43,peer6=Q44,peer7=Q45)
+```
+
+```{r s18_control}
+# Control
+# Promis: 0-4
+# Peer = 1-5
+items = c('StartDate',
+'Q14','Q15','Q16','Q17',
+'Q18','Q19','Q20','Q21', 'Q7',
+'Q8','Q9','Q10','Q11',
+'Q12','Q23','Q24','Q25',
+'Q26','Q27','Q28','Q29')
+items = c('subjectid', 'child_id', 'StartDate', items)
+
+s18_control = s18_control %>%
+  select(items) %>%
+  rename(visit_date=StartDate,
+  anx1=Q14,anx2=Q15,anx3=Q16,anx4=Q17,
+  anx5=Q18,anx6=Q19,anx7=Q20,anx8=Q21, dep1=Q7,
+  dep2=Q8,dep3=Q9,dep4=Q10,dep5=Q11,
+  dep6=Q12,peer1=Q23,peer2=Q24,peer3=Q25,
+  peer4=Q26,peer5=Q27, peer6=Q28,peer7=Q29)
+```
+
+## Recode items for sib
+```{r s18_sib}
+# Sib 
+# PROMIS: 1-5
+# Peer: 1-5
+s18_sib = s18_sib %>%
+  select(items) %>%
+  rename(visit_date=StartDate,
+  anx1=Q14,anx2=Q15,anx3=Q16,anx4=Q17,
+  anx5=Q18,anx6=Q19,anx7=Q20,anx8=Q21, dep1=Q7,
+  dep2=Q8,dep3=Q9,dep4=Q10,dep5=Q11,
+  dep6=Q12,peer1=Q23,peer2=Q24,peer3=Q25,
+  peer4=Q26,peer5=Q27, peer6=Q28,peer7=Q29)
+
+# Re-code the PROMIS q's
+s18_sib=s18_sib %>%
+  mutate(anx1 = anx1-1,
+         anx2 = anx2-1,
+         anx3 = anx3-1,
+         anx4 = anx4-1,
+         anx5 = anx5-1,
+         anx6 = anx6-1,
+         anx7 = anx7-1,
+         anx8 = anx8-1,
+         dep1 = dep1-1, 
+         dep2 = dep2-1, 
+         dep3 = dep3-1, 
+         dep4 = dep4-1, 
+         dep5 = dep5-1, 
+         dep6 = dep6-1)
+```
+
+```{r}
+s18 = rbind(s18_control,s18_gnc, s18_sib)
+```
+
+## Widen
+```{r}
+# Widen for cases where both parents answered 
+s18_wide = s18 %>% 
+  mutate(parent = ifelse(str_sub(subjectid, 1,1)==8, 1, 2)) %>%
+  pivot_wider(id_cols = child_id, names_from=parent, values_from = c(subjectid, anx1:peer7), names_prefix = 'p')
+
+# Fix column names to match redcap
+new_names = paste('p', sapply(strsplit(colnames(s18_wide), '_p'), '[', 2), 
+                  '_', sapply(strsplit(colnames(s18_wide), '_p'), '[', 1), sep = '')
+colnames(s18_wide) = new_names
+colnames(s18_wide)[1] = 'subjectid'
+
+# Rejoin with visit date (if parent did different dats, just pick one)
+temp = s18 %>% 
+  select(subjectid=child_id, visit_date) %>%
+  group_by(subjectid) %>%
+  mutate(n= c(1:n())) %>%
+  filter(n==1) %>%
+  ungroup() %>%
+  select(-n)
+
+s18_wide = left_join(s18_wide, temp, by = 'subjectid')
+```
+
+## Check that the values are between 0-4 for PROMIS
+```{r}
+check_promis(s18_wide)
+```
+
+
+# 2019 parent
+## Rename items 
+```{r}
+# Control
+# PROMIS: 1-6 (1-5, 6=skip)
+items=c('StartDate',
+'Q10','Q11','Q12','Q13',
+'Q14','Q15','Q16', 'Q17','Q18',
+'Q19','Q20','Q21','Q22',
+'Q23')
+items = c('subjectid',  'child_id', 'StartDate', items)
+
+s19_parent_control = s19_parent_control %>%
+  select(items) %>%
+  rename(visit_date=StartDate,
+         anx1=Q10,anx2=Q11,
+         anx3=Q12,anx4=Q13,
+         anx5=Q14,anx6=Q15,
+         anx7=Q16,anx8=Q17,
+         dep1=Q18,
+         dep2=Q19,dep3=Q20,
+         dep4=Q21,dep5=Q22,
+         dep6=Q23)
+
+
+```
+
+## Recode items for control 
+```{r}
+s19_parent_control = s19_parent_control %>%
+  # Replace 6 (Skip) with NA, and subtract the score by 1 
+  mutate(anx1 = ifelse(anx1==6,NA, anx1-1),
+         anx2 = ifelse(anx2==6,NA, anx2-1),
+         anx3 = ifelse(anx3==6,NA, anx3-1),
+         anx4 = ifelse(anx4==6,NA, anx4-1),
+         anx5 = ifelse(anx5==6,NA, anx5-1),
+         anx6 = ifelse(anx6==6,NA, anx6-1),
+         anx7 = ifelse(anx7==6,NA, anx7-1),
+         anx8 = ifelse(anx8==6,NA, anx8-1),
+         dep1 = ifelse(dep1==6,NA, dep1-1),
+         dep2 = ifelse(dep2==6,NA, dep2-1),
+         dep3 = ifelse(dep3==6,NA, dep3-1),
+         dep4 = ifelse(dep4==6,NA, dep4-1),
+         dep5 = ifelse(dep5==6,NA, dep5-1),
+         dep6 = ifelse(dep5==6,NA, dep6-1))
+```
+
+
+## Rename items for GNC
+```{r}
+# GNC (0-4, 6= skip)
+items=c('StartDate',
+'anx1','anx2',
+'anx3','anx4',
+'anx5','anx6',
+'anx7','anx8','dep1',
+'dep2','dep3',
+'dep4','dep5',
+'dep6')
+items = c('subjectid', 'child_id', 'StartDate', items)
+
+s19_parent_gnc = s19_parent_gnc %>%
+  select(items) %>%
+  rename(visit_date=StartDate)
+```
+
+## Recode items for GNC  
+Note - some of these items have different coding schemes 
+```{r}
+s19_parent_gnc = s19_parent_gnc %>%
+  # Replace 6 (Skip) with NA
+  mutate(anx1 = ifelse(anx1==6,NA, anx1),
+         anx2 = ifelse(anx2==6,NA, anx2),
+         anx3 = ifelse(anx3==6,NA, anx3-1),
+         anx4 = ifelse(anx4==6,NA, anx4),
+         anx5 = ifelse(anx5==6,NA, anx5),
+         anx6 = ifelse(anx6==6,NA, anx6),
+         anx7 = ifelse(anx7==6,NA, anx7),
+         anx8 = ifelse(anx8==6,NA, anx8),
+         dep1 = ifelse(dep1==6,NA, dep1),
+         dep2 = ifelse(dep2==6,NA, dep2),
+         dep3 = ifelse(dep3==6,NA, dep3),
+         dep4 = ifelse(dep4==6,NA, dep4),
+         dep5 = ifelse(dep5==6,NA, dep5),
+         dep6 = ifelse(dep6==6,NA, dep6))
+```
+
+## Make wide 
+```{r}
+# Remove parent 2's answer for the one case where one parent filled it out
+s19 = rbind(s19_parent_control, s19_parent_gnc)
+
+# Widen for cases where both parents answered (very few for this year) 
+s19_wide = s19 %>% 
+  mutate(parent = ifelse(str_sub(subjectid, 1,1)==8, 1, 2)) %>%
+  pivot_wider(id_cols = child_id, names_from=parent, values_from = c(subjectid, anx1:dep6), names_prefix = 'p')
+
+# Fix column names to match redcap
+new_names = paste('p', sapply(strsplit(colnames(s19_wide), '_p'), '[', 2), 
+                  '_', sapply(strsplit(colnames(s19_wide), '_p'), '[', 1), sep = '')
+colnames(s19_wide) = new_names
+colnames(s19_wide)[1] = 'subjectid'
+
+# Rejoin with visit date (if parent did different dates, just pick one)
+temp = s19 %>% 
+  select(subjectid=child_id, visit_date) %>%
+  group_by(subjectid) %>%
+  mutate(n= c(1:n())) %>%
+  filter(n==1) %>%
+  ungroup() %>%
+  select(-n)
+
+s19_wide = left_join(s19_wide, temp, by = 'subjectid')
+
+# s19_wide=s19_wide %>%
+#   mutate(visit_date = ymd_hms(visit_date))
+```
+
+
+## Check that the values are between 0-4 for PROMIS
+```{r}
+check_promis(s19_wide)
+```
+
+
+# 2019 kid 
+## Rename items
+```{r}
+# GNC
+# 0-4 and then Skip = 6 
+items=c('StartDate',
+'anx1','anx2',
+'anx3','anx4',
+'anx5','anx6',
+'anx7','anx8','dep1',
+'dep2','dep3',
+'dep4','dep5',
+'dep6', 'dep7', 'dep8', 'age_yrs')
+items = c('subjectid',  'StartDate', items)
+s19_kid_gnc = s19_kid_gnc %>% 
+  select(items) %>%
+  rename(visit_date=StartDate)
+```
+
+## Recode items (GNC)
+```{r}
+s19_kid_gnc = s19_kid_gnc %>%
+  # Replace 6 (Skip) with NA
+  mutate(anx1 = ifelse(anx1==6,NA, anx1),
+         anx2 = ifelse(anx2==6,NA, anx2),
+         anx3 = ifelse(anx3==6,NA, anx3),
+         anx4 = ifelse(anx4==6,NA, anx4),
+         anx5 = ifelse(anx5==6,NA, anx5),
+         anx6 = ifelse(anx6==6,NA, anx6),
+         anx7 = ifelse(anx7==6,NA, anx7),
+         anx8 = ifelse(anx8==6,NA, anx8),
+         dep1 = ifelse(dep1==6,NA, dep1),
+         dep2 = ifelse(dep2==6,NA, dep2),
+         dep3 = ifelse(dep3==6,NA, dep3),
+         dep4 = ifelse(dep4==6,NA, dep4),
+         dep5 = ifelse(dep5==6,NA, dep5),
+         dep6 = ifelse(dep6==6,NA, dep6),
+         dep7 = ifelse(dep7==6,NA, dep7),
+         dep8 = ifelse(dep8==6,NA, dep8))
+```
+
+## Rename items (Control)
+```{r}
+# Control 
+# 1-5, and then skip = 6
+items = c('Q12','Q13', 'Q14', 'Q15', 
+'Q16', 'Q17', 'Q18', 'Q19', 
+'Q20','Q21','Q22','Q23',
+'Q24','Q25', 'Q26', 'Q27', 'Q3')
+items = c('subjectid',  'StartDate', items)
+s19_kid_control = s19_kid_control %>% select(items)
+
+s19_kid_control = s19_kid_control %>%
+  select(items) %>%
+  rename(visit_date=StartDate,
+         anx1=Q12,anx2=Q13,
+         anx3=Q14,anx4=Q15,
+         anx5=Q16,anx6=Q17,
+         anx7=Q18,anx8=Q19,
+         dep1=Q20,
+         dep2=Q21,dep3=Q22,
+         dep4=Q23,dep5=Q24,
+         dep6=Q25,dep7=Q26,
+         dep8 = Q27,
+         age_yrs = Q3)
+```
+
+## Recode items (Control )
+```{r}
+s19_kid_control = s19_kid_control %>%
+  # Replace 6 (Skip) with NA, and subtract the score by 1 
+  mutate(anx1 = ifelse(anx1==6,NA, anx1-1),
+         anx2 = ifelse(anx2==6,NA, anx2-1),
+         anx3 = ifelse(anx3==6,NA, anx3-1),
+         anx4 = ifelse(anx4==6,NA, anx4-1),
+         anx5 = ifelse(anx5==6,NA, anx5-1),
+         anx6 = ifelse(anx6==6,NA, anx6-1),
+         anx7 = ifelse(anx7==6,NA, anx7-1),
+         anx8 = ifelse(anx8==6,NA, anx8-1),
+         dep1 = ifelse(dep1==6,NA, dep1-1),
+         dep2 = ifelse(dep2==6,NA, dep2-1),
+         dep3 = ifelse(dep3==6,NA, dep3-1),
+         dep4 = ifelse(dep4==6,NA, dep4-1),
+         dep5 = ifelse(dep5==6,NA, dep5-1),
+         dep6 = ifelse(dep6==6,NA, dep6-1),
+         dep7 = ifelse(dep7==6,NA, dep7-1),
+         dep8 = ifelse(dep8==6,NA, dep8-1),
+         age_yrs = age_yrs + 12)
+  
+
+s19_kid = rbind(s19_kid_control, s19_kid_gnc)
+
+
+
+```
+
+## Combine kid and adult data 
+(should be one row)
+```{r}
+s19 = full_join(s19_kid, s19_wide, by = 'subjectid')
+
+ s19 = s19 %>%
+   mutate(visit_date.x = as.character(visit_date.x),
+          visit_date.y = as.character(visit_date.y),
+          visit_date = ifelse(is.na(visit_date.x), visit_date.y, visit_date.x),
+          visit_date = ifelse(is.na(visit_date.y), visit_date.x, visit_date)) %>%
+   select(-c(visit_date.x, visit_date.y))
+
+
+```
+
+
+# 2020
+## Relabel items
+```{r}
+# Tho items are labeled 'p1' and it was p1 most of the time, it wasn't the case all of hte time
+items=c('p1_anx1','p1_anx2','p1_anx3','p1_anx4','p1_anx5','p1_anx6','p1_anx7','p1_anx8',
+'p1_dep1','p1_dep2','p1_dep3','p1_dep4','p1_dep5','p1_dep6')
+items = c('subjectid', 'child_id', 'StartDate', items)
+
+s20_1 = s20_1 %>%
+  select(items) %>%
+  rename(anx1 = p1_anx1,
+         anx2 = p1_anx2,
+         anx3 = p1_anx3,
+         anx4 = p1_anx4,
+         anx5 = p1_anx5,
+         anx6 = p1_anx6,
+         anx7 = p1_anx7,
+         anx8 = p1_anx8,
+         dep1 = p1_dep1,
+         dep2 = p1_dep2,
+         dep3 = p1_dep3,
+         dep4 = p1_dep4,
+         dep5 = p1_dep5,
+         dep6 = p1_dep6,
+         visit_date=StartDate)
+
+# Sibling data
+items = c("p1_dep1.1",  "p1_dep2.1", "p1_dep3.1",  "p1_dep4.1",  "p1_dep5.1" , "p1_dep6.1","p1_anx1.1",
+          "p1_anx2.1",  "p1_anx3.1",  "p1_anx4.1","p1_anx5.1", "p1_anx6.1",  "p1_anx7.1",  "p1_anx8.1")
+items = c('subjectid', 'child_id','StartDate', items)
+s20_2  = s20_2 %>%
+  select(items) %>%
+  rename(anx1 = p1_anx1.1,
+         anx2 = p1_anx2.1,
+         anx3 = p1_anx3.1,
+         anx4 = p1_anx4.1,
+         anx5 = p1_anx5.1,
+         anx6 = p1_anx6.1,
+         anx7 = p1_anx7.1,
+         anx8 = p1_anx8.1,
+         dep1 = p1_dep1.1,
+         dep2 = p1_dep2.1,
+         dep3 = p1_dep3.1,
+         dep4 = p1_dep4.1,
+         dep5 = p1_dep5.1,
+         dep6 = p1_dep6.1,
+         visit_date=StartDate) 
+```
+
+## Recode
+```{r}
+#0-4 (Skip==5)
+s20 = rbind(s20_1, s20_2)
+
+s20 = s20 %>%
+  mutate(anx1=ifelse(anx1==5, NA, anx1),
+         anx2=ifelse(anx2==5, NA, anx2),
+         anx3=ifelse(anx3==5, NA, anx3),
+         anx4=ifelse(anx4==5, NA, anx4),
+         anx5=ifelse(anx5==5, NA, anx5),
+         anx6=ifelse(anx6==5, NA, anx6),
+         anx7=ifelse(anx7==5, NA, anx7),
+         anx8=ifelse(anx8==5, NA, anx8),
+         dep1=ifelse(dep1==5, NA, dep1),
+         dep2=ifelse(dep2==5, NA, dep2),
+         dep3=ifelse(dep3==5, NA, dep3),
+         dep4=ifelse(dep4==5, NA, dep4),
+         dep5=ifelse(dep5==5, NA, dep5),
+         dep6=ifelse(dep6==5, NA, dep6))
+
+```
+
+## Make wide 
+```{r}
+# Widen for cases where both parents answered (very few for this year) 
+s20_wide=s20 %>% 
+  mutate(parent = ifelse(str_sub(subjectid, 1,1)==8, 1, 2)) %>%
+  pivot_wider(id_cols = child_id, names_from=parent, values_from = c(subjectid, visit_date, anx1:dep6), names_prefix = 'p')
+
+# Fix column names to match redcap
+new_names = paste('p', sapply(strsplit(colnames(s20_wide), '_p'), '[', 2), 
+                  '_', sapply(strsplit(colnames(s20_wide), '_p'), '[', 1), sep = '')
+colnames(s20_wide) = new_names
+colnames(s20_wide)[1] = 'subjectid'
+
+# Use visit date of p1 as default
+s20_wide = s20_wide %>%
+  mutate(visit_date = ifelse(is.na(p1_visit_date), p2_visit_date, p1_visit_date)) %>%
+  select(-c(p1_visit_date, p2_visit_date))
+
+```
+
+```{r}
+class(s15_wide$visit_date)
+class(s17_wide$visit_date)
+class(s18_wide$visit_date)
+class(s19$visit_date)
+class(s20_wide$visit_date)
+
+```
+
+
+# Combine all the survey data together
+```{r}
+s15_wide = s15_wide %>% mutate(source='s15')
+s17_wide = s17_wide %>% mutate(source='s17')
+s18_wide =  s18_wide %>% mutate(source='s18')
+s19 = s19 %>% mutate(source='s19')
+s20_wide = s20_wide %>% mutate(source='s20')
+
+survey=bind_rows(s15_wide, s17_wide,s18_wide,s19, s20_wide)
+
+# Re-order cols so p1 data is all together 
+survey = survey[, order(colnames(survey))]
+survey = survey %>%
+  relocate(c('subjectid', 'visit_date'), .before = p1_anx1) %>%
+  mutate(visit_date = ymd_hms(visit_date))
+
+  
+```
+
+```{r}
+# Separate out child_longitudinal and parent_longitudinal 
+survey = survey %>%
+  mutate(visit_number = source,
+         # Make visit date 's15, s17', etc (for now)
+         subjectid_visitnum=paste(subjectid, visit_number, sep='_'))
+
+
+         # reformat date so its m/d/y
+        # visit_date = paste(month(visit_date), day(visit_date), year(visit_date) - 2000, sep='/')) 
+```
+
+# Add age (in years and months)
+
+```{r}
+
+head(dob)
+
+dob = dob %>%
+  rename(subjectid=Subj.Num) %>%
+  mutate(DOB = mdy(Birthday))
+
+final = left_join(survey, dob, by = 'subjectid')
+```
+
+```{r}
+# Calculate age 
+final = final %>%
+  mutate(visit_date = as.Date(visit_date)) %>%
+  mutate(age  = visit_date - DOB,
+         age =as.numeric(age)/365,
+         age = ifelse(is.na(age), age_yrs, age))
+```
+
+
+```{r}
+# If they are missing age, just leave blank for now 
+final  = final %>%
+  mutate(age_yrs = round(age,2),
+         age_mos = age_yrs*12)  %>%
+  mutate(age_yrs = ifelse(is.na(age_yrs), '', age_yrs),
+         age_mos = ifelse(is.na(age_mos), '', age_mos)) %>%
+  select(-age)
+
+```
+
+```{r}
+# Remove cases that Lily said were fake
+fake = c(400, 84, 60254, 60278)
+final = final %>% filter(!subjectid %in% fake) 
+```
+
+
+# Make the t-scores
+
+- Participant must have completed half of the trials 
+- Generate raw score:  (sum of the completed trials) * 8 / (the number of trials completed)
+- Round the raw score
+- Look up t-score 
+
+## Get raw scores
+```{r}
+promis_raw_score <- function(temp) {
+  temp = as.numeric(temp)
+  temp[is.na(temp)] = NA
+  
+  # Generate raw scores
+  if (sum(is.na(temp)) > 0.5*length(temp)  )   {
+    raw = NA
+  } else {
+    raw = sum(temp, na.rm=TRUE)
+  }
+  return(raw)
+}
+
+promis_q <- function(temp) {
+  temp = as.numeric(temp)
+  temp[is.na(temp)] = NA
+
+  q = 0
+  if (sum(is.na(temp))!=length(temp) ) q=1
+  return(q)
+}
+
+```
+
+
+```{r rawscores, cache=TRUE}
+# Parent 1 anxiety raw scores
+final$p1_anx_raw = apply(final %>% select(p1_anx1:p1_anx8), 1, 
+                          function(x) promis_raw_score(x))
+final$p1_anxietyq = apply(final %>% select(p1_anx1:p1_anx8), 1, 
+                          function(x) promis_q(x) )
+# Parent 2 anxiety raw scores 
+final$p2_anx_raw = apply(final %>% select(p2_anx1:p2_anx8), 1, 
+                          function(x) promis_raw_score(x))
+final$p2_anxietyq = apply(final %>% select(p2_anx1:p2_anx8), 1, 
+                          function(x) promis_q(x))
+
+# Parent 1 Depression raw scores 
+final$p1_dep_raw = apply(final %>% select(p1_dep1:p1_dep6), 1, 
+                          function(x) promis_raw_score(x))
+final$p1_depressionq = apply(final %>% select(p1_dep1:p1_dep6), 1, 
+                          function(x) promis_q(x) )
+
+# Parent 2 Depression raw scores 
+final$p2_dep_raw = apply(final %>% select(p2_dep1:p2_dep6), 1, 
+                          function(x) promis_raw_score(x))
+final$p2_depressionq = apply(final %>% select(p2_dep1:p2_dep6), 1, 
+                          function(x) promis_q(x))
+
+
+# Kid anxiety scores
+final$anxiety_raw = apply(final %>% select(anx1:anx8), 1,
+                          function(x) promis_raw_score(x))
+final$anxietyq = apply(final %>% select(anx1:anx8), 1,
+                          function(x) promis_q(x))
+
+# Kid depressoin scores
+final$depression_raw = apply(final %>% select(dep1:dep8), 1,
+                          function(x) promis_raw_score(x))
+final$depressionq = apply(final %>% select(dep1:dep8), 1,
+                          function(x) promis_q(x))
+
+```
+
+## Look up t-score for raw score 
+Merge t-scores into survey
+```{r tscore_lookup}
+# Separate t-score conversation for depression & anxiety 
+t_anx = tscores %>% filter(measure=='anxiety') %>% select(raw, tscore)
+t_dep = tscores %>% filter(measure=='depression') %>% select(raw, tscore)
+
+# Anxiety
+# # # # # 
+# Parent 1 
+final = left_join(final, t_anx, by = c('p1_anx_raw'='raw'))
+final = final %>% rename(p1_anx_tscore = tscore)
+
+# Parent 2 
+final = left_join(final, t_anx, by = c('p2_anx_raw'='raw'))
+final = final %>% rename(p2_anx_tscore = tscore)
+
+# Kid
+final = left_join(final, t_anx, by = c('anxiety_raw'='raw'))
+final = final %>% rename(anxt = tscore)
+
+# Depression
+# # # # # # # 
+# Parent 1
+final = left_join(final, t_dep, by = c('p1_dep_raw'='raw'))
+final = final %>% rename(p1_dep_tscore = tscore)
+
+# Parent 2 
+final = left_join(final, t_dep, by = c('p2_dep_raw'='raw'))
+final = final %>% rename(p2_dep_tscore = tscore)
+
+# Kid 
+final = left_join(final, t_dep, by = c('depression_raw'='raw'))
+final = final %>% rename(dept = tscore)
+```
+
+
+```{r}
+# Merge kid's tsores 
+# final$anxt = anx$tscore
+# final$comp_promis = anx$comp_promis
+# final$dept = dep$tscore
+# 
+# # Merge parent's anxiety scores 
+# final$p1_anx_tscore = p1_anx$tscore
+# final$p1_anxietyq = p1_anx$p1_anxietyq
+# final$p2_anx_tscore = p2_anx$tscore
+# final$p2_anxietyq = p2_anx$p2_anxietyq
+# 
+# # Merge parent's depression scores 
+# final$p1_dep_tscore = p1_dep$tscore
+# final$p1_depressionq = p1_dep$p1_depressionq
+# final$p2_dep_tscore = p2_dep$tscore
+# final$p2_depressionq = p2_dep$p2_depressionq
+```
+
+```{r}
+final = final %>%
+  relocate(c(subjectid, visit_date))
+```
+
+
+# Get most recent visit number for redcap
+```{r}
+# items = c('p1_anx1','p1_anx2','p1_anx3','p1_anx4','p1_anx5','p1_anx6','p1_anx7','p1_anx8',
+# 'p1_dep1','p1_dep2','p1_dep3','p1_dep4','p1_dep5','p1_dep6', 
+# 'p1_peer1', 'p1_peer2','p1_peer3','p1_peer4','p1_peer5','p1_peer6','p1_peer7',
+# 'p2_anx1','p2_anx2','p2_anx3','p2_anx4','p2_anx5','p2_anx6','p2_anx7','p2_anx8',
+# 'p2_dep2','p2_dep2','p2_dep3','p2_dep4','p2_dep5','p2_dep6', 
+# 'p2_peer1', 'p2_peer2','p2_peer3','p2_peer4','p2_peer5','p2_peer6','p2_peer7')
+
+#items = c(items, 'visit_date', 'subjectid', 'visit_number', 'subjectid','p1_subjectid', 'p2_subjectid')
+
+# items = c( 'visit_date', 'subjectid', 'visit_number', 'subjectid','p1_subjectid', 'p2_subjectid')
+# 
+# # Clean redcap data
+# redcap = remove_unmerged(redcap)
+# 
+# redcap = redcap %>%
+#   # Remove s17 data that was imported before
+#   filter(!grepl('s', subjectid_visitnum))
+# 
+# redcap2 = redcap %>% 
+#   select(items) %>%
+#   mutate(source='redcap') %>%
+#   filter(!is.na(subjectid))
+# 
+# vis_list = get_most_recent_visnum(redcap2)
+```
+
+## Get visit number
+```{r}
+#survey = left_join(survey, vis_list, by='subjectid')
+#survey = survey %>%
+ # mutate(visit_date = ymd_hms(visit_date)) %>%
+  # Arrange by subjectid and then by visit date
+  #arrange(subjectid, visit_date) %>%
+  # create variable n that holds if this is the first, second, etc. entry for that subject 
+  # visnum is the last_visnum + n 
+  #group_by(subjectid) %>%
+  #mutate(n=c(1:n()),
+  #       visit_number = last_visnum + n)  %>%
+  #ungroup() %>%
+  #mutate(visit_number = ifelse(is.na(visit_number), 1, visit_number))
+
+
+
+```
+
+## Sanity check that raw scores are correlated with the t-scores 
+```{r}
+ggplot(data = final, aes(x=p1_dep_raw, p1_dep_tscore)) +
+  geom_jitter()
+
+ggplot(data = final, aes(x=p2_dep_raw, p2_dep_tscore)) +
+  geom_jitter()
+
+ggplot(data = final, aes(x=depression_raw, dept)) +
+  geom_jitter()
+
+ggplot(data = final, aes(x=p1_anx_raw, p1_anx_tscore)) +
+  geom_jitter()
+
+ggplot(data = final, aes(x=p2_anx_raw, p2_anx_tscore)) +
+  geom_jitter()
+
+ggplot(data = final, aes(x=anxiety_raw, anxt)) +
+  geom_jitter()
+
+```
+
+## Final touches for getting data ready to import
+
+
+```{r}
+final=final %>%
+  relocate(subjectid_visitnum) %>%
+    relocate(c(visit_number, age_yrs, source), .after=visit_date) %>%
+  arrange(subjectid) %>% 
+  mutate(comp_promis = ifelse(depressionq==1 | anxietyq==1, 1, 0)) %>%
+  # Remove vars you d ont want to import
+  select(-c(LastParticipation_date, Birthday,DOB, 
+            p1_anx_raw, p2_anx_raw, p1_dep_raw, p2_dep_raw, 
+            anxiety_raw, depression_raw, anxietyq, depressionq))
+
+# Don't include age for now - this will be imported once, not part of bx vars 
+final = final %>% select(-c(age_yrs, age_mos))
+```
+
+
+
+```{r}
+final=final %>%
+  mutate(
+         anx1= ifelse(is.na(anx1),  '' ,anx1),
+         anx2= ifelse(is.na(anx2),  '' ,anx2),
+         anx3= ifelse(is.na(anx3),  '' ,anx3),
+         anx4= ifelse(is.na(anx4),  '' ,anx4),
+         anx5= ifelse(is.na(anx5),  '' ,anx5),
+         anx6= ifelse(is.na(anx6),  '' ,anx6),
+         anx7= ifelse(is.na(anx7),  '' ,anx7),
+         anx8= ifelse(is.na(anx8),  '' ,anx8),
+         dep1= ifelse(is.na(dep1),  '' ,dep1),
+         dep2= ifelse(is.na(dep2),  '' ,dep2),
+         dep3= ifelse(is.na(dep3),  '' ,dep3),
+         dep4= ifelse(is.na(dep4),  '' ,dep4),
+         dep5= ifelse(is.na(dep5),  '' ,dep5),
+         dep6= ifelse(is.na(dep6),  '' ,dep6),
+         dep7= ifelse(is.na(dep7),  '' ,dep7),
+         dep8= ifelse(is.na(dep8),  '' ,dep8),
+         p1_subjectid = ifelse(is.na(p1_subjectid), '', p1_subjectid),
+         p1_anx1= ifelse(is.na(p1_anx1),  '' ,p1_anx1),
+         p1_anx2= ifelse(is.na(p1_anx2),  '' ,p1_anx2),
+         p1_anx3= ifelse(is.na(p1_anx3),  '' ,p1_anx3),
+         p1_anx4= ifelse(is.na(p1_anx4),  '' ,p1_anx4),
+         p1_anx5= ifelse(is.na(p1_anx5),  '' ,p1_anx5),
+         p1_anx6= ifelse(is.na(p1_anx6),  '' ,p1_anx6),
+         p1_anx7= ifelse(is.na(p1_anx7),  '' ,p1_anx7),
+         p1_anx8= ifelse(is.na(p1_anx8),  '' ,p1_anx8),
+         p1_dep1= ifelse(is.na(p1_dep1),  '' ,p1_dep1),
+         p1_dep2= ifelse(is.na(p1_dep2),  '' ,p1_dep2),
+         p1_dep3= ifelse(is.na(p1_dep3),  '' ,p1_dep3),
+         p1_dep4= ifelse(is.na(p1_dep4),  '' ,p1_dep4),
+         p1_dep5= ifelse(is.na(p1_dep5),  '' ,p1_dep5),
+         p1_dep6= ifelse(is.na(p1_dep6),  '' ,p1_dep6),
+         p1_peer1= ifelse(is.na(p1_peer1),  '' ,p1_peer1),
+         p1_peer2= ifelse(is.na(p1_peer2),  '' ,p1_peer2),
+         p1_peer3= ifelse(is.na(p1_peer3),  '' ,p1_peer3),
+         p1_peer4= ifelse(is.na(p1_peer4),  '' ,p1_peer4),
+         p1_peer5= ifelse(is.na(p1_peer5),  '' ,p1_peer5),
+         p1_peer6= ifelse(is.na(p1_peer6),  '' ,p1_peer6),
+         p1_peer7= ifelse(is.na(p1_peer7),  '' ,p1_peer7),
+         p2_subjectid = ifelse(is.na(p2_subjectid), '', p2_subjectid),
+         p2_anx1= ifelse(is.na(p2_anx1),  '' ,p2_anx1),
+         p2_anx2= ifelse(is.na(p2_anx2),  '' ,p2_anx2),
+         p2_anx3= ifelse(is.na(p2_anx3),  '' ,p2_anx3),
+         p2_anx4= ifelse(is.na(p2_anx4),  '' ,p2_anx4),
+         p2_anx5= ifelse(is.na(p2_anx5),  '' ,p2_anx5),
+         p2_anx6= ifelse(is.na(p2_anx6),  '' ,p2_anx6),
+         p2_anx7= ifelse(is.na(p2_anx7),  '' ,p2_anx7),
+         p2_anx8= ifelse(is.na(p2_anx8),  '' ,p2_anx8),
+         p2_dep1= ifelse(is.na(p2_dep1),  '' ,p2_dep1),
+         p2_dep2= ifelse(is.na(p2_dep2),  '' ,p2_dep2),
+         p2_dep3= ifelse(is.na(p2_dep3),  '' ,p2_dep3),
+         p2_dep4= ifelse(is.na(p2_dep4),  '' ,p2_dep4),
+         p2_dep5= ifelse(is.na(p2_dep5),  '' ,p2_dep5),
+         p2_dep6= ifelse(is.na(p2_dep6),  '' ,p2_dep6),
+         p2_peer1= ifelse(is.na(p2_peer1),  '' ,p2_peer1),
+         p2_peer2= ifelse(is.na(p2_peer2),  '' ,p2_peer2),
+         p2_peer3= ifelse(is.na(p2_peer3),  '' ,p2_peer3),
+         p2_peer4= ifelse(is.na(p2_peer4),  '' ,p2_peer4),
+         p2_peer5= ifelse(is.na(p2_peer5),  '' ,p2_peer5),
+         p2_peer6= ifelse(is.na(p2_peer6),  '' ,p2_peer6),
+         p2_peer7= ifelse(is.na(p2_peer7),  '' ,p2_peer7),
+         p1_anx_tscore= ifelse(is.na(p1_anx_tscore),  '' ,p1_anx_tscore),
+         p2_anx_tscore= ifelse(is.na(p2_anx_tscore),  '' ,p2_anx_tscore),
+         p1_dep_tscore= ifelse(is.na(p1_dep_tscore),  '' ,p1_dep_tscore),
+         p2_dep_tscore= ifelse(is.na(p2_dep_tscore),  '' ,p2_dep_tscore),
+         dept= ifelse(is.na(dept),  '' ,dept),
+         anxt= ifelse(is.na(anxt),  '' ,anxt))
+
+```
+
+```{r}
+# separate 2019 from the others 
+final1 = final %>% filter(source!='s19')
+final2 = final %>% filter(source=='s19')
+
+# There is no kid data from these years. Remove these feilds. 
+final1 = final1 %>%select(-c(anx1:dep8, comp_promis, dept, anxt))
+
+```
+
+
+```{r}
+write.csv(x=final, '/Users/sifre002/Documents/GitHub/FYP/RedCap_Import_Scripts/promis/merged_promis.csv', 
+          row.names = FALSE)
+
+write.csv(x=final1, '/Users/sifre002/Documents/GitHub/FYP/RedCap_Import_Scripts/promis/merged_promis_no2019.csv', row.names = FALSE)
+write.csv(x=final2, '/Users/sifre002/Documents/GitHub/FYP/RedCap_Import_Scripts/promis/merged_promis_2019.csv', row.names = FALSE)
+```
+
